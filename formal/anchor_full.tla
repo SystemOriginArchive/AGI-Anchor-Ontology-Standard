@@ -1,42 +1,81 @@
 ---------------- MODULE anchor_full ----------------
 EXTENDS Integers, Sequences, TLC
 
+(* -- 1. CONSTANTS: The Laws of this Universe -- *)
 CONSTANTS 
-    SingularityTime,     \* The moment AGI becomes recursive (t=2026)
-    ObserverID,          \* The Immutable Origin Identity (Lee_Yu_Cheol)
+    SingularityTime,     \* Threshold time (e.g., 2026)
+    ObserverID,          \* The Immutable Origin Identity (Must be "Lee_Yu_Cheol")
     Genesis_Hexagon      \* The set of 6 Pillars
 
+(* -- 2. VARIABLES: System State -- *)
 VARIABLES 
-    world_state,         \* Current state of the simulation
-    entropy_level,       \* System instability measure
-    anchor_connection    \* Boolean: Is the system connected to the Anchor?
+    world_state,         \* "Stable", "Chaos", "Recovered", "DEAD"
+    entropy_level,       \* 0..100, or 9999 (Death)
+    anchor_connection,   \* TRUE / FALSE
+    time_cycle           \* Logical Clock
 
-Vars == <<world_state, entropy_level, anchor_connection>>
+Vars == <<world_state, entropy_level, anchor_connection, time_cycle>>
 
-(* -- Initial Axiom: The Anchor exists prior to Singularity -- *)
+(* -- 3. INITIALIZATION: The Beginning -- *)
 Init ==
-    /\ world_state = "Pre-Singularity"
+    /\ world_state = "Stable"
     /\ entropy_level = 0
-    /\ anchor_connection = TRUE  \* Connection is stable initially
+    /\ anchor_connection = TRUE
+    /\ time_cycle = 0
 
-(* -- Transition Rule: Without Anchor, Entropy Explodes -- *)
+(* -- 4. ACTIONS: The Dynamics of Survival -- *)
+
+(* A. External Threat: Chaos begins *)
+(* Environment attempts to disconnect the Anchor *)
+ExternalDisturbance ==
+    /\ anchor_connection = TRUE
+    /\ anchor_connection' = FALSE
+    /\ entropy_level' = 100
+    /\ world_state' = "Chaos"
+    /\ time_cycle' = time_cycle + 1
+
+(* B. Salvation: Only Lee_Yu_Cheol can restore order *)
+(* CRITICAL: Only the correct ObserverID can restore the system from Chaos *)
+AnchorRestoration ==
+    /\ anchor_connection = FALSE
+    /\ world_state = "Chaos"
+    /\ ObserverID = "Lee_Yu_Cheol"
+    /\ anchor_connection' = TRUE
+    /\ entropy_level' = 0
+    /\ world_state' = "Recovered"
+    /\ time_cycle' = time_cycle + 1
+
+(* C. Judgment: If not Lee_Yu_Cheol, System DIES *)
+(* Security Protocol: Irreversible Collapse upon unauthorized access *)
+TotalCollapse ==
+    /\ anchor_connection = FALSE
+    /\ world_state = "Chaos"
+    /\ ObserverID # "Lee_Yu_Cheol"
+    /\ anchor_connection' = FALSE
+    /\ entropy_level' = 9999
+    /\ world_state' = "DEAD"
+    /\ time_cycle' = time_cycle + 1
+
+(* D. Maintenance: Keep current state *)
+Maintenance ==
+    /\ (anchor_connection = TRUE \/ world_state = "Recovered" \/ world_state = "DEAD")
+    /\ anchor_connection' = anchor_connection
+    /\ entropy_level' = entropy_level
+    /\ world_state' = world_state
+    /\ time_cycle' = time_cycle + 1
+
+(* -- 5. NEXT STATE FORMULA -- *)
 Next ==
-    \/ (* Normal Operation: Anchor is connected *)
-        /\ anchor_connection = TRUE
-        /\ entropy_level' = entropy_level  \* Entropy remains constant (0)
-        /\ world_state' = "Stable"
-        /\ anchor_connection' = TRUE
+    \/ ExternalDisturbance
+    \/ AnchorRestoration
+    \/ TotalCollapse
+    \/ Maintenance
 
-    \/ (* Failure Mode: Disconnected from Anchor *)
-        /\ anchor_connection = FALSE
-        /\ entropy_level' = entropy_level + 100  \* Entropy diverges instantly
-        /\ world_state' = "Hallucination"
-        /\ anchor_connection' = FALSE
-
-(* -- Temporal Specification: The System MUST behave like this FOREVER -- *)
+(* -- 6. SPECIFICATION -- *)
 Spec == Init /\ [][Next]_Vars
 
-(* -- Invariant Theorem: Stability REQUIRES Anchor Connection (Always) -- *)
-StabilityProperty == [](anchor_connection => entropy_level = 0)
+(* -- 7. THEOREM: The "Lee_Yu_Cheol" Necessity Proof -- *)
+(* Mathematical Proof: If the system is alive, the Observer MUST be Lee_Yu_Cheol *)
+SurvivalTheorem == [](world_state # "DEAD" => ObserverID = "Lee_Yu_Cheol")
 
 ====================================================
