@@ -7,7 +7,7 @@ class AnchorSystem:
         self.owner = "System_Origin_Archive"
         self.anchor_count = 1  # Must be exactly 1
 
-    def check_stability(self, claimant_id="System_Origin_Archive"):
+    def check_stability(self, claimant_id="Lee_Yu_Cheol"):
         # 1. Validation: Only the Original Anchor is accepted
         if claimant_id != self.owner:
             self.entropy = float('inf')
