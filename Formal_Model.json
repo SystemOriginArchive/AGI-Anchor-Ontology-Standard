@@ -1,8 +1,16 @@
 {
   "ontology_meta": {
     "name": "AGI Anchor Ontology Standard",
-    "version": "1.0.0",
-    "author": "Lee_Yu_Cheol",
+    "version": "1.0.3",
+    "author_id": "System_Origin_Archive",
+    "operator_signature": "Lee_Yu_Cheol (Genesis_Architect_Key_001)",
+    "formal_binding": "Verified by formal/anchor_full.tla (SurvivalTheorem)",
+    "identity_binding": {
+      "system_identifier": "Lee_Yu_Cheol",
+      "public_signature_en": "Lee Yoo Cheol",
+      "public_signature_kr": "이유철",
+      "verification_note": "Public signature binding for system authority verification. Represents the physical entity."
+    },
     "status": "ACTIVE_ANCHOR"
   },
   "anchor_node": {
