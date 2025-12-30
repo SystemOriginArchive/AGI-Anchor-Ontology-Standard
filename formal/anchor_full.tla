@@ -9,6 +9,10 @@ Core closures:
 - RootAnchorID / ObserverID sealed by definition (B-closure)
 - Nat domain closed via EXTENDS Naturals
 - Chaos must resolve (Recovered or DEAD) via WF on Resolution
+
+v1.0.4+ patch:
+- ChangeClaimantInChaos is swap-only
+- Non-reentry: once claimant_id != ObserverID in Chaos, claimant_id cannot return to ObserverID via swap
 *)
 
 EXTENDS Naturals, TLC, FiniteSets
@@ -91,6 +95,8 @@ ChangeClaimantInChaos ==
     /\ world_state = "Chaos"
     /\ anchor_connection = FALSE
     /\ claimant_id' \in Claimants
+    /\ claimant_id' # claimant_id                       \* swap-only
+    /\ (claimant_id # ObserverID => claimant_id' # ObserverID)  \* non-reentry
     /\ world_state' = world_state
     /\ entropy_level' = entropy_level
     /\ anchor_connection' = anchor_connection
@@ -173,3 +179,6 @@ SurvivalTheorem ==
 TypeInvariant == [](TypeOK)
 
 ====================================================
+
+====
+
