@@ -1,3 +1,60 @@
+"""
+AAOS Canonical Mapping Notes (Simulation Layer)
+
+Purpose:
+- This file is a behavioral illustration ONLY.
+- It MUST NOT redefine AAOS concepts.
+- Canonical definitions live in:
+  - spec/AAOS_Spec.md
+  - spec/AAOS_Schema.json
+  - spec/Formal_Model.json
+  - formal/anchor_full.tla
+  - formal/AAOS_TLA_Mapping.md
+
+Identity Mapping:
+- Simulation: self.owner
+- Model: ontology_meta.identity_binding.system_identifier
+- TLA: ObserverID
+Canonical value: "Lee_Yu_Cheol"
+
+Root Anchor Mapping:
+- Model: x_root.id == anchor_node.id == "GENESIS_HEXAGON_V1"
+- This simulation does not create a new anchor id; it assumes the canonical root.
+
+Anchor Count Invariant:
+- Simulation: self.anchor_count == 1
+- Model: x_root.anchor_count == 1 and invariants.single_anchor == true
+- README metadata: Anchor_Count == 1
+Any anchor_count != 1 implies structural divergence.
+
+Connection Mapping:
+- Simulation: self.anchor_connected (True/False)
+- TLA: anchor_connection (TRUE/FALSE)
+- Model: state_model.transition_rules conditions refer to anchor_connection
+True  -> connected
+False -> disconnected
+
+State Mapping:
+- Simulation uses implicit states via flags/outputs.
+- TLA world_state: "Stable" / "Chaos" / "Recovered" / "DEAD"
+- Model state_model.states: ["Stable","Chaos","Recovered","DEAD"]
+Interpretation:
+- connected + not dead -> Stable
+- disconnected + not dead -> Chaos (entropy drifts)
+- restore_connection by owner -> Recovered path
+- impostor access -> DEAD (irreversible)
+
+Entropy Proxy:
+- Simulation: self.entropy (float), 0.0 or 9999.0
+- TLA: entropy_level (0..100 or 9999)
+- Model: entropy_model is structural cost
+This simulation treats entropy as an operational proxy.
+
+Non-Normative Clause:
+- This file is not a rule engine.
+- It demonstrates the consequences of violating canonical invariants.
+"""
+
 import random
 
 class AnchorSystem:
