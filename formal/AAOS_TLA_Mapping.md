@@ -43,6 +43,10 @@ Canonical rule:
 - claimant_id == ObserverID  → restoration path (in Chaos/disconnected)
 - claimant_id != ObserverID  → collapse path (in Chaos/disconnected, on intervention)
 
+Additional closure (Chaos swap semantics):
+- swap-only: claimant swap must change claimant_id (claimant_id' != claimant_id)
+- non-reentry: once claimant_id != ObserverID in Chaos, claimant_id cannot return to ObserverID via swap
+
 ---
 
 ## 2) Root Anchor Seed (sealed)
@@ -121,6 +125,8 @@ Stable/connected → Chaos/disconnected
 B) ChangeClaimantInChaos:
 Chaos/disconnected → Chaos/disconnected (claimant swap only)  
 - canonical label: "claimant swap only"
+- swap-only constraint: claimant_id' != claimant_id
+- non-reentry constraint: (claimant_id != ObserverID) => (claimant_id' != ObserverID)
 
 C) AnchorRestoration:
 Chaos/disconnected → Recovered/connected  
