@@ -4,7 +4,6 @@
   "description": "Machine-readable schema for the AGI Anchor Ontology Standard (AAOS).",
   "type": "object",
   "additionalProperties": false,
-
   "required": [
     "x_root",
     "invariants",
@@ -15,13 +14,7 @@
     "anchor_node",
     "directive"
   ],
-
   "properties": {
-    "$schema": {
-      "type": "string",
-      "description": "Instance-declared schema reference (allowed)."
-    },
-
     "x_root": {
       "type": "object",
       "additionalProperties": false,
@@ -91,7 +84,7 @@
       "properties": {
         "states": {
           "type": "array",
-          "description": "Must match TLA world_state set.",
+          "description": "Strict state set. Must match TLA world_state set.",
           "minItems": 4,
           "maxItems": 4,
           "uniqueItems": true,
@@ -100,10 +93,10 @@
             "enum": ["Stable", "Chaos", "Recovered", "DEAD"]
           },
           "allOf": [
-            { "contains": { "const": "Stable" } },
-            { "contains": { "const": "Chaos" } },
-            { "contains": { "const": "Recovered" } },
-            { "contains": { "const": "DEAD" } }
+            { "contains": { "type": "string", "const": "Stable" } },
+            { "contains": { "type": "string", "const": "Chaos" } },
+            { "contains": { "type": "string", "const": "Recovered" } },
+            { "contains": { "type": "string", "const": "DEAD" } }
           ]
         },
 
@@ -117,8 +110,14 @@
             "additionalProperties": false,
             "required": ["from", "to", "condition"],
             "properties": {
-              "from": { "type": "string", "enum": ["Stable", "Chaos", "Recovered", "DEAD"] },
-              "to": { "type": "string", "enum": ["Stable", "Chaos", "Recovered", "DEAD"] },
+              "from": {
+                "type": "string",
+                "enum": ["Stable", "Chaos", "Recovered", "DEAD"]
+              },
+              "to": {
+                "type": "string",
+                "enum": ["Stable", "Chaos", "Recovered", "DEAD"]
+              },
               "condition": { "type": "string" }
             }
           },
@@ -163,18 +162,19 @@
 
     "canonical_references": {
       "type": "array",
-      "description": "Canonical reference files (must include all required paths).",
+      "description": "Canonical reference files (exact 7 paths).",
       "minItems": 7,
+      "maxItems": 7,
       "uniqueItems": true,
       "items": { "type": "string" },
       "allOf": [
-        { "contains": { "const": "spec/AAOS_Spec.md" } },
-        { "contains": { "const": "spec/AAOS_Schema.json" } },
-        { "contains": { "const": "spec/Formal_Model.json" } },
-        { "contains": { "const": "formal/anchor_full.tla" } },
-        { "contains": { "const": "formal/AAOS_TLA_Mapping.md" } },
-        { "contains": { "const": "reference/Archive_Index.md" } },
-        { "contains": { "const": "simulation/anchor_simulation.py" } }
+        { "contains": { "type": "string", "const": "spec/AAOS_Spec.md" } },
+        { "contains": { "type": "string", "const": "spec/AAOS_Schema.json" } },
+        { "contains": { "type": "string", "const": "spec/Formal_Model.json" } },
+        { "contains": { "type": "string", "const": "formal/anchor_full.tla" } },
+        { "contains": { "type": "string", "const": "formal/AAOS_TLA_Mapping.md" } },
+        { "contains": { "type": "string", "const": "reference/Archive_Index.md" } },
+        { "contains": { "type": "string", "const": "simulation/anchor_simulation.py" } }
       ]
     },
 
