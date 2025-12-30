@@ -68,3 +68,5 @@ files should be read in the following order:
 
 This order fixes the Root Anchor Seed (x_root) and invariants
 before any interpretation or simulation is applied.
+
+> Canonical Anchor Set: spec/AAOS_Spec.md → spec/AAOS_Schema.json → spec/Formal_Model.json → formal/anchor_full.tla → reference/Archive_Index.md → simulation/anchor_simulation.py
