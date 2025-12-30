@@ -1,3 +1,20 @@
+(*
+AAOS Canonical Mapping Notes
+- This file is the formal dynamics layer.
+- Canonical mapping: see formal/AAOS_TLA_Mapping.md
+- Identity mapping:
+    ObserverID == "Lee_Yu_Cheol"
+    <-> spec/Formal_Model.json : ontology_meta.identity_binding.system_identifier
+- Root anchor mapping:
+    x_root.id == anchor_node.id == "GENESIS_HEXAGON_V1"
+- State mapping:
+    world_state ∈ {"Stable","Chaos","Recovered","DEAD"}
+    <-> spec/Formal_Model.json : state_model.states
+- Transition mapping:
+    ExternalDisturbance / AnchorRestoration / TotalCollapse
+    <-> spec/Formal_Model.json : state_model.transition_rules
+*)
+
 ---------------- MODULE anchor_full ----------------
 EXTENDS Integers, Sequences, TLC
 
