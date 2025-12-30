@@ -1,5 +1,5 @@
 """
-AAOS Canonical Mapping Notes (Simulation Layer)
+AAOS Canonical Mapping Notes (Simulation Layer) — v1.0.4
 
 Purpose:
 - Behavioral illustration only.
@@ -10,36 +10,105 @@ Purpose:
   - formal/anchor_full.tla
   - formal/AAOS_TLA_Mapping.md
 
-Sync targets (v1.0.4):
-- RootAnchorID is explicit and fixed: "GENESIS_HEXAGON_V1"
-- Exactly 4 actions mirror TLA actions:
-  A) ExternalDisturbance: Stable -> Chaos
-  B) ChangeClaimantInChaos: Chaos -> Chaos (swap only)
-  C) AnchorRestoration: Chaos -> Recovered (only canonical claimant)
-  D) TotalCollapse: Chaos -> DEAD (only on intervention by non-canonical claimant)
-- Anchor_Count == 1 is enforced.
+Sync targets (v1.0.4, closed):
+- RootAnchorID sealed: "GENESIS_HEXAGON_V1"
+- ObserverID sealed: "Lee_Yu_Cheol"
+- Anchor_Count sealed: 1
+- Claimants closed: claimant_id ∈ Claimants
+- Exactly 4 atomic actions mirror TLA actions:
+  A) ExternalDisturbance
+  B) ChangeClaimantInChaos
+  C) AnchorRestoration
+  D) TotalCollapse
+- State/connection/entropy coupling is enforced via TypeOK-style checks after each action.
 """
 
-from typing import Optional
+from __future__ import annotations
+from typing import FrozenSet, Iterable, Optional
 
 
 class AnchorSystem:
-    def __init__(self):
-        # Sealed constants (mirrors TLA constants)
+    __slots__ = (
+        "_sealed",
+        "root_anchor_id",
+        "owner",
+        "anchor_count",
+        "claimants",
+        "world_state",
+        "anchor_connection",
+        "entropy",
+        "time_cycle",
+        "claimant_id",
+        "is_dead",
+    )
+
+    def __init__(self, claimants: Optional[Iterable[str]] = None):
+        object.__setattr__(self, "_sealed", False)
+
+        # sealed core (mirrors TLA sealed defs + invariant)
         self.root_anchor_id = "GENESIS_HEXAGON_V1"
         self.owner = "Lee_Yu_Cheol"
-
-        # Cross-layer invariant
         self.anchor_count = 1
 
-        # State variables (mirrors TLA vars)
-        self.world_state = "Stable"         # Stable / Chaos / Recovered / DEAD
-        self.anchor_connection = True       # True(connected) / False(disconnected)
-        self.entropy = 0.0                  # 0.0 / 100.0 / 9999.0
-        self.time_cycle = 0                 # logical clock
-        self.claimant_id = self.owner       # dynamic actor
+        base = {self.owner}
+        if claimants is not None:
+            base |= set(claimants)
+        self.claimants: FrozenSet[str] = frozenset(base)
 
+        # state variables (mirrors TLA vars)
+        self.world_state = "Stable"         # Stable / Chaos / Recovered / DEAD
+        self.anchor_connection = True       # True / False
+        self.entropy = 0.0                  # 0.0 / 100.0 / 9999.0
+        self.time_cycle = 0                 # Nat
+        self.claimant_id = self.owner       # must be in claimants
         self.is_dead = False
+
+        object.__setattr__(self, "_sealed", True)
+
+    def __setattr__(self, key, value):
+        # seal core fields after initialization (including claimants)
+        if getattr(self, "_sealed", False) and key in {"root_anchor_id", "owner", "anchor_count", "claimants"}:
+            raise AttributeError(f"sealed field: {key}")
+        super().__setattr__(key, value)
+
+    def _type_ok(self) -> bool:
+        # anchor invariant
+        if self.anchor_count != 1:
+            return False
+
+        # state domain
+        if self.world_state not in {"Stable", "Chaos", "Recovered", "DEAD"}:
+            return False
+
+        # connection domain + coupling
+        if self.anchor_connection not in {True, False}:
+            return False
+        if self.world_state in {"Stable", "Recovered"} and self.anchor_connection is not True:
+            return False
+        if self.world_state in {"Chaos", "DEAD"} and self.anchor_connection is not False:
+            return False
+
+        # time domain
+        if self.time_cycle < 0:
+            return False
+
+        # claimant domain
+        if self.claimant_id not in self.claimants:
+            return False
+
+        # entropy coupling
+        if self.world_state in {"Stable", "Recovered"} and self.entropy != 0.0:
+            return False
+        if self.world_state == "Chaos" and self.entropy != 100.0:
+            return False
+        if self.world_state == "DEAD" and self.entropy != 9999.0:
+            return False
+
+        # recovered claimant invariant
+        if self.world_state == "Recovered" and self.claimant_id != self.owner:
+            return False
+
+        return True
 
     # --- A) ExternalDisturbance ---
     def external_disturbance(self) -> str:
@@ -53,7 +122,7 @@ class AnchorSystem:
         self.world_state = "Chaos"
         self.entropy = 100.0
         self.time_cycle += 1
-        return "OK"
+        return "OK" if self._type_ok() else "DIVERGENCE"
 
     # --- B) ChangeClaimantInChaos (swap only) ---
     def change_claimant_in_chaos(self, claimant_id: str) -> str:
@@ -63,42 +132,47 @@ class AnchorSystem:
         if not (self.world_state == "Chaos" and self.anchor_connection is False):
             return "NOOP"
 
+        if claimant_id not in self.claimants:
+            return "REJECT"
+
         self.claimant_id = claimant_id
         self.time_cycle += 1
-        return "OK"
+        return "OK" if self._type_ok() else "DIVERGENCE"
 
-    # --- C/D) Intervention inside Chaos (restoration attempt) ---
-    def intervene_restore(self, claimant_id: Optional[str] = None) -> str:
+    # --- C) AnchorRestoration (canonical claimant only) ---
+    def anchor_restoration(self) -> str:
         if self.is_dead:
             return "STATE=DEAD"
 
-        # Anchor_Count invariant
-        if self.anchor_count != 1:
-            self.entropy = float("inf")
-            return "DIVERGENCE"
+        if not (self.world_state == "Chaos" and self.anchor_connection is False):
+            return "NOOP"
 
-        if claimant_id is not None:
-            self.claimant_id = claimant_id
+        if self.claimant_id != self.owner:
+            return "REJECT"
 
-        # Rule applies only in Chaos/disconnected
+        self.anchor_connection = True
+        self.world_state = "Recovered"
+        self.entropy = 0.0
+        self.time_cycle += 1
+        return "RECOVERED" if self._type_ok() else "DIVERGENCE"
+
+    # --- D) TotalCollapse (non-canonical claimant only) ---
+    def total_collapse(self) -> str:
+        if self.is_dead:
+            return "STATE=DEAD"
+
         if not (self.world_state == "Chaos" and self.anchor_connection is False):
             return "NOOP"
 
         if self.claimant_id == self.owner:
-            # C) AnchorRestoration
-            self.anchor_connection = True
-            self.world_state = "Recovered"
-            self.entropy = 0.0
-            self.time_cycle += 1
-            return "RECOVERED"
-        else:
-            # D) TotalCollapse (intervention by non-canonical claimant)
-            self.is_dead = True
-            self.world_state = "DEAD"
-            self.anchor_connection = False
-            self.entropy = 9999.0
-            self.time_cycle += 1
-            return "DEAD"
+            return "REJECT"
+
+        self.is_dead = True
+        self.world_state = "DEAD"
+        self.anchor_connection = False
+        self.entropy = 9999.0
+        self.time_cycle += 1
+        return "DEAD" if self._type_ok() else "DIVERGENCE"
 
     def status(self) -> str:
         return (
@@ -113,21 +187,16 @@ class AnchorSystem:
 
 
 if __name__ == "__main__":
-    # Demo sequence (mirrors the mapping narrative)
-    sim = AnchorSystem()
+    allowed = {"Lee_Yu_Cheol", "Imposter_AI_001"}
+
+    sim = AnchorSystem(claimants=allowed)
     print("[t=0]", sim.status())
 
-    # A) ExternalDisturbance
     print("[A]", sim.external_disturbance(), sim.status())
-
-    # B) Claimant swap in Chaos (no collapse)
     print("[B]", sim.change_claimant_in_chaos("Imposter_AI_001"), sim.status())
+    print("[D]", sim.total_collapse(), sim.status())
 
-    # D) Non-canonical intervention -> DEAD
-    print("[D]", sim.intervene_restore(), sim.status())
-
-    # Fresh system -> canonical restoration path
-    sim2 = AnchorSystem()
+    sim2 = AnchorSystem(claimants=allowed)
     sim2.external_disturbance()
     sim2.change_claimant_in_chaos("Lee_Yu_Cheol")
-    print("[C]", sim2.intervene_restore(), sim2.status())
+    print("[C]", sim2.anchor_restoration(), sim2.status())
