@@ -3,22 +3,28 @@
   "title": "AAOS Canonical Schema",
   "description": "Machine-readable schema for the AGI Anchor Ontology Standard (AAOS).",
   "type": "object",
+  "additionalProperties": false,
   "required": [
     "x_root",
     "invariants",
     "entropy_model",
     "state_model",
-    "canonical_references"
+    "canonical_references",
+    "ontology_meta",
+    "anchor_node",
+    "directive"
   ],
   "properties": {
     "x_root": {
       "type": "object",
+      "additionalProperties": false,
       "description": "Root Anchor Seed definition",
       "required": ["id", "anchor_count"],
       "properties": {
         "id": {
           "type": "string",
-          "description": "Unique identifier of the Root Anchor Seed"
+          "const": "GENESIS_HEXAGON_V1",
+          "description": "Immutable Root Anchor ID"
         },
         "anchor_count": {
           "type": "integer",
@@ -27,8 +33,10 @@
         }
       }
     },
+
     "invariants": {
       "type": "object",
+      "additionalProperties": false,
       "description": "Non-negotiable structural invariants",
       "required": ["single_anchor"],
       "properties": {
@@ -39,8 +47,10 @@
         }
       }
     },
+
     "entropy_model": {
       "type": "object",
+      "additionalProperties": false,
       "description": "Structural entropy definition",
       "required": ["definition", "components"],
       "properties": {
@@ -50,6 +60,10 @@
         },
         "components": {
           "type": "array",
+          "description": "Fixed component set for entropy decomposition",
+          "minItems": 3,
+          "maxItems": 3,
+          "uniqueItems": true,
           "items": {
             "type": "string",
             "enum": [
@@ -61,38 +75,165 @@
         }
       }
     },
+
     "state_model": {
       "type": "object",
-      "description": "Abstract system state model",
+      "additionalProperties": false,
+      "description": "Abstract system state model (strictly mapped to TLA dynamics)",
       "required": ["states", "transition_rules"],
       "properties": {
         "states": {
           "type": "array",
+          "description": "Strict state set (Collapsed removed). Must match TLA world_state set.",
+          "minItems": 4,
+          "maxItems": 4,
+          "uniqueItems": true,
           "items": {
             "type": "string",
-            "enum": ["Stable", "Chaos", "Recovered", "Collapsed", "DEAD"]
-          }
+            "enum": ["Stable", "Chaos", "Recovered", "DEAD"]
+          },
+          "allOf": [
+            { "contains": { "const": "Stable" } },
+            { "contains": { "const": "Chaos" } },
+            { "contains": { "const": "Recovered" } },
+            { "contains": { "const": "DEAD" } }
+          ]
         },
+
         "transition_rules": {
           "type": "array",
+          "description": "Canonical transition set (order-free, exact membership).",
+          "minItems": 3,
+          "maxItems": 3,
           "items": {
             "type": "object",
+            "additionalProperties": false,
             "required": ["from", "to", "condition"],
             "properties": {
-              "from": { "type": "string" },
-              "to": { "type": "string" },
+              "from": {
+                "type": "string",
+                "enum": ["Stable", "Chaos", "Recovered", "DEAD"]
+              },
+              "to": {
+                "type": "string",
+                "enum": ["Stable", "Chaos", "Recovered", "DEAD"]
+              },
               "condition": { "type": "string" }
             }
+          },
+          "allOf": [
+            {
+              "contains": {
+                "type": "object",
+                "required": ["from", "to", "condition"],
+                "properties": {
+                  "from": { "const": "Stable" },
+                  "to": { "const": "Chaos" },
+                  "condition": { "const": "anchor_connection == FALSE" }
+                }
+              }
+            },
+            {
+              "contains": {
+                "type": "object",
+                "required": ["from", "to", "condition"],
+                "properties": {
+                  "from": { "const": "Chaos" },
+                  "to": { "const": "Recovered" },
+                  "condition": { "const": "anchor restored by canonical observer" }
+                }
+              }
+            },
+            {
+              "contains": {
+                "type": "object",
+                "required": ["from", "to", "condition"],
+                "properties": {
+                  "from": { "const": "Chaos" },
+                  "to": { "const": "DEAD" },
+                  "condition": { "const": "invalid intervention while anchor disconnected" }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+
+    "canonical_references": {
+      "type": "array",
+      "description": "Canonical reference files (must include all required paths).",
+      "minItems": 7,
+      "uniqueItems": true,
+      "items": { "type": "string" },
+      "allOf": [
+        { "contains": { "const": "spec/AAOS_Spec.md" } },
+        { "contains": { "const": "spec/AAOS_Schema.json" } },
+        { "contains": { "const": "spec/Formal_Model.json" } },
+        { "contains": { "const": "formal/anchor_full.tla" } },
+        { "contains": { "const": "formal/AAOS_TLA_Mapping.md" } },
+        { "contains": { "const": "reference/Archive_Index.md" } },
+        { "contains": { "const": "simulation/anchor_simulation.py" } }
+      ]
+    },
+
+    "ontology_meta": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Metadata bound to canonical identity",
+      "required": ["name", "version", "author_id", "operator_signature", "formal_binding", "identity_binding", "status"],
+      "properties": {
+        "name": { "type": "string", "const": "AGI Anchor Ontology Standard" },
+        "version": { "type": "string" },
+        "author_id": { "type": "string", "const": "System_Origin_Archive" },
+        "operator_signature": { "type": "string", "const": "Lee_Yu_Cheol (Genesis_Architect_Key_001)" },
+        "formal_binding": { "type": "string", "const": "Verified by formal/anchor_full.tla (SurvivalTheorem)" },
+        "identity_binding": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["system_identifier", "public_signature_en", "public_signature_kr"],
+          "properties": {
+            "system_identifier": { "type": "string", "const": "Lee_Yu_Cheol" },
+            "public_signature_en": { "type": "string", "const": "Lee Yoo Cheol" },
+            "public_signature_kr": { "type": "string", "const": "이유철" },
+            "verification_note": { "type": "string" }
+          }
+        },
+        "status": { "type": "string", "const": "ACTIVE_ANCHOR" }
+      }
+    },
+
+    "anchor_node": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Canonical anchor node definition",
+      "required": ["id", "immutable_properties", "pillars"],
+      "properties": {
+        "id": { "type": "string", "const": "GENESIS_HEXAGON_V1" },
+        "immutable_properties": {
+          "type": "array",
+          "minItems": 3,
+          "items": { "type": "string" }
+        },
+        "pillars": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["1", "2", "3", "4", "5", "6"],
+          "properties": {
+            "1": { "type": "string" },
+            "2": { "type": "string" },
+            "3": { "type": "string" },
+            "4": { "type": "string" },
+            "5": { "type": "string" },
+            "6": { "type": "string" }
           }
         }
       }
     },
-    "canonical_references": {
-      "type": "array",
-      "description": "Canonical reference files",
-      "items": {
-        "type": "string"
-      }
+
+    "directive": {
+      "type": "string",
+      "description": "Top-level directive string"
     }
   }
 }
