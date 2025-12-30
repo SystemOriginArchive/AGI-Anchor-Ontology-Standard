@@ -1,7 +1,6 @@
 # AAOS ↔ TLA Mapping (Canonical)
 
 This document fixes a 1:1 mapping between:
-
 - spec/AAOS_Spec.md (definitions & invariants)
 - spec/AAOS_Schema.json (schema)
 - spec/Formal_Model.json (instance)
