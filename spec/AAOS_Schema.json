@@ -194,7 +194,15 @@
       "type": "object",
       "additionalProperties": true,
       "description": "Metadata bound to canonical identity",
-      "required": ["name", "version", "author_id", "operator_signature", "formal_binding", "identity_binding", "status"],
+      "required": [
+        "name",
+        "version",
+        "author_id",
+        "operator_signature",
+        "formal_binding",
+        "identity_binding",
+        "status"
+      ],
       "properties": {
         "name": { "type": "string", "const": "AGI Anchor Ontology Standard" },
         "version": { "type": "string" },
