@@ -19,6 +19,16 @@ ObserverID == ontology_meta.identity_binding.system_identifier
 
 ---
 
+## 1.1) Claimant / Accessor (Dynamic)
+
+- TLA: claimant_id (VARIABLE)
+- Simulation: check_stability(claimant_id)
+- Canonical rule:
+  - claimant_id == ObserverID  → restoration path
+  - claimant_id != ObserverID  → collapse path (when in Chaos and disconnected)
+
+---
+
 ## 2) Root Anchor Seed
 
 - Model: x_root.id
@@ -32,6 +42,7 @@ x_root.id == anchor_node.id
 
 ## 3) Anchor Count Invariant
 
+- TLA: anchor_count (VARIABLE, fixed)
 - Simulation: anchor_count == 1
 - Model: x_root.anchor_count == 1
 - Model: invariants.single_anchor == true
@@ -78,16 +89,21 @@ Stable/connected → Chaos/disconnected
 
 B) AnchorRestoration:
 Chaos/disconnected → Recovered/connected
-- precondition: ObserverID == "Lee_Yu_Cheol"
+- precondition: claimant_id == ObserverID
 - anchor_connection: FALSE → TRUE
 - world_state: "Chaos" → "Recovered"
 - entropy_level: 100 → 0
 
 C) TotalCollapse:
 Chaos/disconnected → DEAD/disconnected
-- precondition: ObserverID != "Lee_Yu_Cheol"
+- precondition: claimant_id != ObserverID
 - world_state: "Chaos" → "DEAD"
 - entropy_level: 100 → 9999
+
+D) ChangeClaimantInChaos (Dynamics Closure):
+Chaos/disconnected → Chaos/disconnected (claimant swap only)
+- claimant_id: changes within Claimants
+- world_state / anchor_connection / entropy_level / anchor_count: unchanged
 
 ---
 
