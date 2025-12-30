@@ -1,79 +1,54 @@
 ---------------- MODULE anchor_full ----------------
 
 (*
-AAOS Canonical Mapping Notes
-- This file is the formal dynamics layer for AAOS.
-- Canonical mapping reference:
-    formal/AAOS_TLA_Mapping.md
+AAOS v1.0.4 Formal Dynamics (0-gap closure)
 
-LAYER LINKS (1:1 intent)
-1) Identity / Observer
-   - TLA: ObserverID (CONSTANT, sealed)
-   - Model: spec/Formal_Model.json : ontology_meta.identity_binding.system_identifier
-   - Canonical value: "Lee_Yu_Cheol"
-
-2) Dynamic Access Actor
-   - TLA: claimant_id (VARIABLE)
-   - Meaning:
-        claimant_id == ObserverID  -> restoration path (in Chaos & disconnected)
-        claimant_id != ObserverID  -> collapse path (in Chaos & disconnected, on intervention)
-
-3) Root Anchor Seed (sealed)
-   - TLA: RootAnchorID (CONSTANT, sealed)
-   - Canonical value: "GENESIS_HEXAGON_V1"
-   - Model: x_root.id == anchor_node.id == RootAnchorID
-
-4) Anchor Count (cross-layer invariant)
-   - TLA: anchor_count (VARIABLE, fixed to 1)
-   - Model: x_root.anchor_count == 1
-   - Schema: x_root.anchor_count const 1
-   - Spec: Anchor_Count = 1
-
-5) States (strict 4-state set)
-   world_state ∈ {"Stable","Chaos","Recovered","DEAD"}
-
-6) Canonical transitions (action-level; exactly 4)
-   - ExternalDisturbance: Stable -> Chaos
-   - ChangeClaimantInChaos: Chaos -> Chaos (claimant swap only)
-   - AnchorRestoration: Chaos -> Recovered
-   - TotalCollapse: Chaos -> DEAD
-
-   (Stuttering is allowed by temporal semantics: Init /\ [][Next]_Vars)
+Core closures:
+- 4 states / 4 actions only
+- Anchor_Count = 1
+- RootAnchorID / ObserverID sealed by definition (B-closure)
+- Nat domain closed via EXTENDS Naturals
+- Chaos must resolve (Recovered or DEAD) via WF on Resolution
 *)
 
-EXTENDS Integers, TLC, FiniteSets
-
-(* -- 1. CONSTANTS -- *)
-CONSTANTS
-    RootAnchorID,        \* Canonical root anchor id ("GENESIS_HEXAGON_V1")
-    ObserverID,          \* Canonical identity constant ("Lee_Yu_Cheol")
-    Genesis_Hexagon,     \* Set of 6 Anchor Pillars (structure carrier)
-    Claimants            \* Allowed claimant identity set
-
-ASSUME Claimants # {}
-ASSUME RootAnchorID = "GENESIS_HEXAGON_V1"
-ASSUME ObserverID = "Lee_Yu_Cheol"
-ASSUME ObserverID \in Claimants
+EXTENDS Naturals, TLC, FiniteSets
 
 (*
-Optional structural closure for the pillar carrier:
-- Provide Genesis_Hexagon as a concrete finite set in TLC config
-  to seal the "6 pillars" claim mechanically.
+-- 1) SEALED DEFINITIONS (no TLC cfg needed for these) --
 *)
+RootAnchorID == "GENESIS_HEXAGON_V1"
+ObserverID   == "Lee_Yu_Cheol"
+
+(*
+-- 2) CONSTANTS (cfg-supplied) --
+*)
+CONSTANTS
+    Genesis_Hexagon,     \* 6 pillars carrier set
+    Claimants            \* allowed claimant identity set
+
+ASSUME IsFiniteSet(Claimants)
+ASSUME Claimants # {}
+ASSUME ObserverID \in Claimants
+
+ASSUME IsFiniteSet(Genesis_Hexagon)
 ASSUME Cardinality(Genesis_Hexagon) = 6
 
-(* -- 2. VARIABLES -- *)
+(*
+-- 3) VARIABLES --
+*)
 VARIABLES
     world_state,         \* "Stable", "Chaos", "Recovered", "DEAD"
     entropy_level,       \* 0..100, or 9999 (Death)
     anchor_connection,   \* TRUE / FALSE
-    time_cycle,          \* Logical Clock
-    claimant_id,         \* Dynamic access identity
-    anchor_count         \* Must remain 1
+    time_cycle,          \* logical clock
+    claimant_id,         \* dynamic actor
+    anchor_count         \* must remain 1
 
 Vars == <<world_state, entropy_level, anchor_connection, time_cycle, claimant_id, anchor_count>>
 
-(* -- 2.1 DOMAIN / TYPE DEFINITIONS (explicit closure) -- *)
+(*
+-- 3.1) DOMAIN / TYPE (explicit closure) --
+*)
 StateSet == {"Stable","Chaos","Recovered","DEAD"}
 EntropySet == (0..100) \cup {9999}
 
@@ -85,7 +60,9 @@ TypeOK ==
     /\ claimant_id \in Claimants
     /\ anchor_count = 1
 
-(* -- 3. INITIAL STATE -- *)
+(*
+-- 4) INIT --
+*)
 Init ==
     /\ world_state = "Stable"
     /\ entropy_level = 0
@@ -94,9 +71,11 @@ Init ==
     /\ claimant_id = ObserverID
     /\ anchor_count = 1
 
-(* -- 4. ACTIONS (exactly 4) -- *)
+(*
+-- 5) ACTIONS (exactly 4) --
+*)
 
-(* A. External Disturbance: Stable/connected -> Chaos/disconnected *)
+(* A) Stable/connected -> Chaos/disconnected *)
 ExternalDisturbance ==
     /\ world_state = "Stable"
     /\ anchor_connection = TRUE
@@ -107,7 +86,7 @@ ExternalDisturbance ==
     /\ anchor_count' = anchor_count
     /\ time_cycle' = time_cycle + 1
 
-(* B. Claimant swap inside Chaos (Dynamics closure) *)
+(* B) Chaos/disconnected -> Chaos/disconnected (claimant swap only) *)
 ChangeClaimantInChaos ==
     /\ world_state = "Chaos"
     /\ anchor_connection = FALSE
@@ -118,7 +97,7 @@ ChangeClaimantInChaos ==
     /\ anchor_count' = anchor_count
     /\ time_cycle' = time_cycle + 1
 
-(* C. Restoration: only canonical claimant restores from Chaos *)
+(* C) Chaos/disconnected -> Recovered/connected (canonical claimant only) *)
 AnchorRestoration ==
     /\ world_state = "Chaos"
     /\ anchor_connection = FALSE
@@ -130,7 +109,7 @@ AnchorRestoration ==
     /\ anchor_count' = anchor_count
     /\ time_cycle' = time_cycle + 1
 
-(* D. Total Collapse: non-canonical claimant intervenes in Chaos -> DEAD *)
+(* D) Chaos/disconnected -> DEAD/disconnected (non-canonical claimant intervention) *)
 TotalCollapse ==
     /\ world_state = "Chaos"
     /\ anchor_connection = FALSE
@@ -142,20 +121,30 @@ TotalCollapse ==
     /\ anchor_count' = anchor_count
     /\ time_cycle' = time_cycle + 1
 
-(* -- 5. NEXT-STATE RELATION -- *)
+(*
+-- 6) NEXT --
+*)
 Next ==
     \/ ExternalDisturbance
     \/ ChangeClaimantInChaos
     \/ AnchorRestoration
     \/ TotalCollapse
 
-(* -- 6. SPEC -- *)
-Spec == Init /\ [][Next]_Vars
+(*
+-- 7) CHAOS RESOLUTION FAIRNESS --
+*)
+Resolution == AnchorRestoration \/ TotalCollapse
 
-(* -- 7. INVARIANTS / THEOREMS (closure checks) -- *)
+Spec ==
+    Init
+    /\ [][Next]_Vars
+    /\ WF_Vars(Resolution)
 
-RootAnchorSealed == RootAnchorID = "GENESIS_HEXAGON_V1"
-IdentitySealed   == ObserverID   = "Lee_Yu_Cheol"
+(*
+-- 8) INVARIANTS / THEOREMS --
+*)
+RootAnchorSealed == (RootAnchorID = "GENESIS_HEXAGON_V1")
+IdentitySealed   == (ObserverID   = "Lee_Yu_Cheol")
 
 AnchorCountTheorem == [](anchor_count = 1)
 
