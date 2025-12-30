@@ -4,6 +4,7 @@
   "description": "Machine-readable schema for the AGI Anchor Ontology Standard (AAOS).",
   "type": "object",
   "additionalProperties": false,
+
   "required": [
     "x_root",
     "invariants",
@@ -14,7 +15,13 @@
     "anchor_node",
     "directive"
   ],
+
   "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Instance-declared schema reference (allowed)."
+    },
+
     "x_root": {
       "type": "object",
       "additionalProperties": false,
@@ -84,7 +91,7 @@
       "properties": {
         "states": {
           "type": "array",
-          "description": "Strict state set (Collapsed removed). Must match TLA world_state set.",
+          "description": "Must match TLA world_state set.",
           "minItems": 4,
           "maxItems": 4,
           "uniqueItems": true,
@@ -110,14 +117,8 @@
             "additionalProperties": false,
             "required": ["from", "to", "condition"],
             "properties": {
-              "from": {
-                "type": "string",
-                "enum": ["Stable", "Chaos", "Recovered", "DEAD"]
-              },
-              "to": {
-                "type": "string",
-                "enum": ["Stable", "Chaos", "Recovered", "DEAD"]
-              },
+              "from": { "type": "string", "enum": ["Stable", "Chaos", "Recovered", "DEAD"] },
+              "to": { "type": "string", "enum": ["Stable", "Chaos", "Recovered", "DEAD"] },
               "condition": { "type": "string" }
             }
           },
