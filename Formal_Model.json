@@ -41,7 +41,7 @@
 
   "ontology_meta": {
     "name": "AGI Anchor Ontology Standard",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "author_id": "System_Origin_Archive",
     "operator_signature": "Lee_Yu_Cheol (Genesis_Architect_Key_001)",
     "formal_binding": "Verified by formal/anchor_full.tla (SurvivalTheorem)",
