@@ -22,9 +22,10 @@ ObserverID == ontology_meta.identity_binding.system_identifier
 ## 1.1) Claimant / Accessor (Dynamic)
 
 - TLA: claimant_id (VARIABLE)
+- Model: state_model.transition_rules (Chaos→Chaos swap rule present)
 - Canonical rule:
-  - claimant_id == ObserverID  → restoration path
-  - claimant_id != ObserverID  → collapse path (when in Chaos and disconnected)
+  - claimant_id == ObserverID  → restoration path (in Chaos/disconnected)
+  - claimant_id != ObserverID  → collapse path (in Chaos/disconnected)
 
 ---
 
@@ -42,6 +43,7 @@ x_root.id == anchor_node.id
 ## 3) Anchor Count Invariant
 
 - TLA: anchor_count (VARIABLE, fixed)
+- Simulation: anchor_count == 1
 - Model: x_root.anchor_count == 1
 - Model: invariants.single_anchor == true
 
@@ -53,6 +55,7 @@ Anchor_Count = 1
 ## 4) Connection Variable
 
 - TLA: anchor_connection (TRUE/FALSE)
+- Model: transition rules refer to anchor_connection
 
 Mapping:
 anchor_connection == TRUE  → connected
@@ -63,7 +66,7 @@ anchor_connection == FALSE → disconnected
 ## 5) States
 
 - TLA: world_state ∈ {"Stable","Chaos","Recovered","DEAD"}
-- Model: state_model.states == ["Stable","Chaos","Recovered","DEAD"]
+- Model: state_model.states includes ["Stable","Chaos","Recovered","DEAD"]
 
 Mapping:
 world_state == "Stable"    ↔ Stable
@@ -82,6 +85,7 @@ Stable/connected → Chaos/disconnected
 - anchor_connection: TRUE → FALSE
 - world_state: "Stable" → "Chaos"
 - entropy_level: 0 → 100
+- condition string: "anchor_connection == FALSE"
 
 B) AnchorRestoration:
 Chaos/disconnected → Recovered/connected
@@ -89,22 +93,27 @@ Chaos/disconnected → Recovered/connected
 - anchor_connection: FALSE → TRUE
 - world_state: "Chaos" → "Recovered"
 - entropy_level: 100 → 0
+- condition string: "anchor restored by canonical observer"
 
 C) TotalCollapse:
 Chaos/disconnected → DEAD/disconnected
 - precondition: claimant_id != ObserverID
 - world_state: "Chaos" → "DEAD"
 - entropy_level: 100 → 9999
+- condition string: "invalid intervention while anchor disconnected"
 
 D) ChangeClaimantInChaos:
-Chaos/disconnected → Chaos/disconnected
-- condition: claimant swap only
+Chaos/disconnected → Chaos/disconnected (claimant swap only)
+- claimant_id: changes within Claimants
+- world_state / anchor_connection / entropy_level / anchor_count: unchanged
+- condition string: "claimant swap only"
 
 ---
 
 ## 7) Entropy Scale
 
 - TLA: entropy_level ∈ 0..100 or 9999
+- Model: entropy_model is structural (objective/reference/direction)
 
 Interpretation:
 entropy_level is an operational proxy for structural entropy cost.
