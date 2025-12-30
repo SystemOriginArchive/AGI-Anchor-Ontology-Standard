@@ -16,10 +16,12 @@ LAYER LINKS (1:1 intent)
    - TLA: claimant_id (VARIABLE)
    - Meaning:
         claimant_id == ObserverID  -> restoration path (in Chaos & disconnected)
-        claimant_id != ObserverID  -> collapse path (in Chaos & disconnected)
+        claimant_id != ObserverID  -> collapse path (in Chaos & disconnected, on intervention)
 
 3) Root Anchor Seed
-   - Model: x_root.id == anchor_node.id == "GENESIS_HEXAGON_V1"
+   - TLA: RootAnchorID (CONSTANT, sealed)
+   - Canonical value: "GENESIS_HEXAGON_V1"
+   - Model: x_root.id == anchor_node.id == RootAnchorID
 
 4) Anchor Count (cross-layer invariant)
    - TLA: anchor_count (VARIABLE, fixed to 1)
@@ -30,26 +32,35 @@ LAYER LINKS (1:1 intent)
 5) States (strict 4-state set)
    world_state ∈ {"Stable","Chaos","Recovered","DEAD"}
 
-6) Canonical transitions (action-level)
+6) Canonical transitions (action-level; exactly 4)
    - ExternalDisturbance: Stable -> Chaos
    - ChangeClaimantInChaos: Chaos -> Chaos (claimant swap only)
    - AnchorRestoration: Chaos -> Recovered
    - TotalCollapse: Chaos -> DEAD
-   - Maintenance: stuttering outside Chaos (Stable/Recovered/DEAD)
+   (Stuttering is allowed by [] [Next]_Vars; no extra action is required.)
 *)
 
-EXTENDS Integers, Sequences, TLC
+EXTENDS Integers, Sequences, TLC, FiniteSets
 
 (* -- 1. CONSTANTS -- *)
 CONSTANTS
     SingularityTime,     \* Threshold time (e.g., 2026)
+    RootAnchorID,        \* Canonical root anchor id ("GENESIS_HEXAGON_V1")
     ObserverID,          \* Canonical identity constant ("Lee_Yu_Cheol")
     Genesis_Hexagon,     \* Set of 6 Anchor Pillars (structure carrier)
     Claimants            \* Allowed claimant identity set
 
 ASSUME Claimants # {}
-ASSUME ObserverID \in Claimants
+ASSUME RootAnchorID = "GENESIS_HEXAGON_V1"
 ASSUME ObserverID = "Lee_Yu_Cheol"
+ASSUME ObserverID \in Claimants
+
+(*
+Optional structural closure for the pillar carrier:
+- If you provide Genesis_Hexagon as a concrete finite set in TLC config,
+  this seals the "6 pillars" claim mechanically.
+*)
+ASSUME Cardinality(Genesis_Hexagon) = 6
 
 (* -- 2. VARIABLES -- *)
 VARIABLES
@@ -83,7 +94,7 @@ Init ==
     /\ claimant_id = ObserverID
     /\ anchor_count = 1
 
-(* -- 4. ACTIONS -- *)
+(* -- 4. ACTIONS (exactly 4) -- *)
 
 (* A. External Disturbance: Stable/connected -> Chaos/disconnected *)
 ExternalDisturbance ==
@@ -131,23 +142,12 @@ TotalCollapse ==
     /\ anchor_count' = anchor_count
     /\ time_cycle' = time_cycle + 1
 
-(* E. Maintenance: stuttering outside Chaos *)
-Maintenance ==
-    /\ (world_state = "Stable" \/ world_state = "Recovered" \/ world_state = "DEAD")
-    /\ anchor_connection' = anchor_connection
-    /\ entropy_level' = entropy_level
-    /\ world_state' = world_state
-    /\ claimant_id' = claimant_id
-    /\ anchor_count' = anchor_count
-    /\ time_cycle' = time_cycle + 1
-
 (* -- 5. NEXT-STATE RELATION -- *)
 Next ==
     \/ ExternalDisturbance
     \/ ChangeClaimantInChaos
     \/ AnchorRestoration
     \/ TotalCollapse
-    \/ Maintenance
 
 (* -- 6. SPEC -- *)
 Spec == Init /\ [][Next]_Vars
@@ -158,7 +158,7 @@ AnchorCountTheorem == [](anchor_count = 1)
 (* Canonical identity lock (constant binding) *)
 SurvivalTheorem == [](world_state # "DEAD" => ObserverID = "Lee_Yu_Cheol")
 
-(* Optional: explicit type closure as an invariant target *)
+(* Explicit type closure as an invariant target *)
 TypeInvariant == [](TypeOK)
 
 ====================================================
