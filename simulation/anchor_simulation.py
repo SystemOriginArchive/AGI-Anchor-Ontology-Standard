@@ -21,6 +21,10 @@ Sync targets (v1.0.4, closed):
   C) AnchorRestoration
   D) TotalCollapse
 - State/connection/entropy coupling is enforced via TypeOK-style checks after each action.
+
+v1.0.4+ patch:
+- ChangeClaimantInChaos is swap-only
+- Non-reentry: once claimant_id != owner in Chaos, cannot switch back to owner via swap
 """
 
 from __future__ import annotations
@@ -124,7 +128,7 @@ class AnchorSystem:
         self.time_cycle += 1
         return "OK" if self._type_ok() else "DIVERGENCE"
 
-    # --- B) ChangeClaimantInChaos (swap only) ---
+    # --- B) ChangeClaimantInChaos (swap only + non-reentry) ---
     def change_claimant_in_chaos(self, claimant_id: str) -> str:
         if self.is_dead:
             return "STATE=DEAD"
@@ -133,6 +137,14 @@ class AnchorSystem:
             return "NOOP"
 
         if claimant_id not in self.claimants:
+            return "REJECT"
+
+        # swap-only (mirror TLA: claimant_id' # claimant_id)
+        if claimant_id == self.claimant_id:
+            return "NOOP"
+
+        # non-reentry: once claimant != owner, cannot switch back to owner inside Chaos
+        if self.claimant_id != self.owner and claimant_id == self.owner:
             return "REJECT"
 
         self.claimant_id = claimant_id
@@ -198,5 +210,6 @@ if __name__ == "__main__":
 
     sim2 = AnchorSystem(claimants=allowed)
     sim2.external_disturbance()
-    sim2.change_claimant_in_chaos("Lee_Yu_Cheol")
+    # swap-only: already owner -> NOOP
+    print("[B2]", sim2.change_claimant_in_chaos("Lee_Yu_Cheol"), sim2.status())
     print("[C]", sim2.anchor_restoration(), sim2.status())
