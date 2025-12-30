@@ -8,7 +8,7 @@ AAOS Canonical Mapping Notes
 
 LAYER LINKS (1:1 intent)
 1) Identity / Observer
-   - TLA: ObserverID (CONSTANT)
+   - TLA: ObserverID (CONSTANT, sealed)
    - Model: spec/Formal_Model.json : ontology_meta.identity_binding.system_identifier
    - Canonical value: "Lee_Yu_Cheol"
 
@@ -18,7 +18,7 @@ LAYER LINKS (1:1 intent)
         claimant_id == ObserverID  -> restoration path (in Chaos & disconnected)
         claimant_id != ObserverID  -> collapse path (in Chaos & disconnected, on intervention)
 
-3) Root Anchor Seed
+3) Root Anchor Seed (sealed)
    - TLA: RootAnchorID (CONSTANT, sealed)
    - Canonical value: "GENESIS_HEXAGON_V1"
    - Model: x_root.id == anchor_node.id == RootAnchorID
@@ -37,14 +37,14 @@ LAYER LINKS (1:1 intent)
    - ChangeClaimantInChaos: Chaos -> Chaos (claimant swap only)
    - AnchorRestoration: Chaos -> Recovered
    - TotalCollapse: Chaos -> DEAD
-   (Stuttering is allowed by [] [Next]_Vars; no extra action is required.)
+
+   (Stuttering is allowed by temporal semantics: Init /\ [][Next]_Vars)
 *)
 
-EXTENDS Integers, Sequences, TLC, FiniteSets
+EXTENDS Integers, TLC, FiniteSets
 
 (* -- 1. CONSTANTS -- *)
 CONSTANTS
-    SingularityTime,     \* Threshold time (e.g., 2026)
     RootAnchorID,        \* Canonical root anchor id ("GENESIS_HEXAGON_V1")
     ObserverID,          \* Canonical identity constant ("Lee_Yu_Cheol")
     Genesis_Hexagon,     \* Set of 6 Anchor Pillars (structure carrier)
@@ -57,8 +57,8 @@ ASSUME ObserverID \in Claimants
 
 (*
 Optional structural closure for the pillar carrier:
-- If you provide Genesis_Hexagon as a concrete finite set in TLC config,
-  this seals the "6 pillars" claim mechanically.
+- Provide Genesis_Hexagon as a concrete finite set in TLC config
+  to seal the "6 pillars" claim mechanically.
 *)
 ASSUME Cardinality(Genesis_Hexagon) = 6
 
@@ -153,12 +153,34 @@ Next ==
 Spec == Init /\ [][Next]_Vars
 
 (* -- 7. INVARIANTS / THEOREMS (closure checks) -- *)
+
+RootAnchorSealed == RootAnchorID = "GENESIS_HEXAGON_V1"
+IdentitySealed   == ObserverID   = "Lee_Yu_Cheol"
+
 AnchorCountTheorem == [](anchor_count = 1)
 
-(* Canonical identity lock (constant binding) *)
-SurvivalTheorem == [](world_state # "DEAD" => ObserverID = "Lee_Yu_Cheol")
+StateConnectionInvariant ==
+    [](
+        (world_state = "Stable"    => anchor_connection = TRUE)  /\
+        (world_state = "Chaos"     => anchor_connection = FALSE) /\
+        (world_state = "Recovered" => anchor_connection = TRUE)  /\
+        (world_state = "DEAD"      => anchor_connection = FALSE)
+      )
 
-(* Explicit type closure as an invariant target *)
+StateEntropyInvariant ==
+    [](
+        (world_state \in {"Stable","Recovered"} => entropy_level = 0) /\
+        (world_state = "Chaos" => entropy_level = 100) /\
+        (world_state = "DEAD"  => entropy_level = 9999)
+      )
+
+RecoveredClaimantInvariant ==
+    [](world_state = "Recovered" => claimant_id = ObserverID)
+
+(* Bound name used by Formal_Model.json formal_binding *)
+SurvivalTheorem ==
+    [](world_state = "Recovered" => (claimant_id = ObserverID /\ anchor_connection = TRUE /\ entropy_level = 0))
+
 TypeInvariant == [](TypeOK)
 
 ====================================================
