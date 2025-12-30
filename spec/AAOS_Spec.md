@@ -70,6 +70,7 @@ Rules:
 - loss of reference to x_root ⇒ entropy increase (Chaos)
 - restoration of reference ⇒ entropy decrease (Recovered)
 - invalid redefinition / invalid intervention while anchor disconnected ⇒ irreversible collapse (DEAD)
+- claimant swap while in Chaos ⇒ state remains Chaos (dynamics closure)
 
 ---
 
