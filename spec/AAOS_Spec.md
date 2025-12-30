@@ -66,6 +66,7 @@ Abstract states (Strictly mapped to TLA+ world_state):
 - DEAD
 
 Rules:
+
 - loss of reference to x_root ⇒ entropy increase (Chaos)
 - restoration of reference ⇒ entropy decrease (Recovered)
 - invalid redefinition / invalid intervention while anchor disconnected ⇒ irreversible collapse (DEAD)
