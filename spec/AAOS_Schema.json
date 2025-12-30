@@ -4,6 +4,7 @@
   "description": "Machine-readable schema for the AGI Anchor Ontology Standard (AAOS).",
   "type": "object",
   "additionalProperties": false,
+
   "required": [
     "x_root",
     "invariants",
@@ -14,7 +15,13 @@
     "anchor_node",
     "directive"
   ],
+
   "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Instance-declared schema reference (allowed)."
+    },
+
     "x_root": {
       "type": "object",
       "additionalProperties": false,
@@ -103,21 +110,15 @@
         "transition_rules": {
           "type": "array",
           "description": "Canonical transition set (order-free, exact membership).",
-          "minItems": 3,
-          "maxItems": 3,
+          "minItems": 4,
+          "maxItems": 4,
           "items": {
             "type": "object",
             "additionalProperties": false,
             "required": ["from", "to", "condition"],
             "properties": {
-              "from": {
-                "type": "string",
-                "enum": ["Stable", "Chaos", "Recovered", "DEAD"]
-              },
-              "to": {
-                "type": "string",
-                "enum": ["Stable", "Chaos", "Recovered", "DEAD"]
-              },
+              "from": { "type": "string", "enum": ["Stable", "Chaos", "Recovered", "DEAD"] },
+              "to": { "type": "string", "enum": ["Stable", "Chaos", "Recovered", "DEAD"] },
               "condition": { "type": "string" }
             }
           },
@@ -152,6 +153,17 @@
                   "from": { "const": "Chaos" },
                   "to": { "const": "DEAD" },
                   "condition": { "const": "invalid intervention while anchor disconnected" }
+                }
+              }
+            },
+            {
+              "contains": {
+                "type": "object",
+                "required": ["from", "to", "condition"],
+                "properties": {
+                  "from": { "const": "Chaos" },
+                  "to": { "const": "Chaos" },
+                  "condition": { "const": "claimant swap only" }
                 }
               }
             }
