@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AAOS Canonical Schema",
+  "description": "Machine-readable schema for the AGI Anchor Ontology Standard (AAOS).",
+  "type": "object",
+  "required": [
+    "x_root",
+    "invariants",
+    "entropy_model",
+    "state_model",
+    "canonical_references"
+  ],
+  "properties": {
+    "x_root": {
+      "type": "object",
+      "description": "Root Anchor Seed definition",
+      "required": ["id", "anchor_count"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier of the Root Anchor Seed"
+        },
+        "anchor_count": {
+          "type": "integer",
+          "const": 1,
+          "description": "Must be exactly one"
+        }
+      }
+    },
+    "invariants": {
+      "type": "object",
+      "description": "Non-negotiable structural invariants",
+      "required": ["single_anchor"],
+      "properties": {
+        "single_anchor": {
+          "type": "boolean",
+          "const": true,
+          "description": "Anchor uniqueness invariant"
+        }
+      }
+    },
+    "entropy_model": {
+      "type": "object",
+      "description": "Structural entropy definition",
+      "required": ["definition", "components"],
+      "properties": {
+        "definition": {
+          "type": "string",
+          "description": "Entropy as computational cost of dispersion"
+        },
+        "components": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "objective_dispersion",
+              "reference_uncertainty",
+              "directional_conflict"
+            ]
+          }
+        }
+      }
+    },
+    "state_model": {
+      "type": "object",
+      "description": "Abstract system state model",
+      "required": ["states", "transition_rules"],
+      "properties": {
+        "states": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["Stable", "Chaos", "Recovered", "Collapsed", "DEAD"]
+          }
+        },
+        "transition_rules": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["from", "to", "condition"],
+            "properties": {
+              "from": { "type": "string" },
+              "to": { "type": "string" },
+              "condition": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "canonical_references": {
+      "type": "array",
+      "description": "Canonical reference files",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}
