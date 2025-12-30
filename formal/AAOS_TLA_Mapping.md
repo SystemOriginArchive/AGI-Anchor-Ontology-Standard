@@ -1,10 +1,13 @@
 # AAOS ↔ TLA Mapping (Canonical)
 
 This document fixes a 1:1 mapping between:
+
 - spec/AAOS_Spec.md (definitions & invariants)
 - spec/AAOS_Schema.json (schema)
 - spec/Formal_Model.json (instance)
 - formal/anchor_full.tla (formal dynamics)
+
+---
 
 ## 1) Identity / Observer
 
@@ -13,7 +16,9 @@ This document fixes a 1:1 mapping between:
 - Canonical value: "Lee_Yu_Cheol"
 
 Mapping:
-ObserverID == identity_binding.system_identifier
+ObserverID == ontology_meta.identity_binding.system_identifier
+
+---
 
 ## 2) Root Anchor Seed
 
@@ -23,6 +28,8 @@ ObserverID == identity_binding.system_identifier
 
 Mapping:
 x_root.id == anchor_node.id
+
+---
 
 ## 3) Anchor Count Invariant
 
@@ -34,14 +41,18 @@ x_root.id == anchor_node.id
 Invariant:
 Anchor_Count = 1
 
+---
+
 ## 4) Connection Variable
 
 - TLA: anchor_connection (TRUE/FALSE)
-- Schema/Model: state_model.transition_rules conditions refer to anchor_connection
+- Schema/Model: transition rules refer to anchor_connection
 
 Mapping:
 anchor_connection == TRUE  → connected
 anchor_connection == FALSE → disconnected
+
+---
 
 ## 5) States
 
@@ -53,6 +64,8 @@ world_state == "Stable"    ↔ Stable
 world_state == "Chaos"     ↔ Chaos
 world_state == "Recovered" ↔ Recovered
 world_state == "DEAD"      ↔ DEAD
+
+---
 
 ## 6) Transitions
 
@@ -76,6 +89,8 @@ Chaos/disconnected → DEAD/disconnected
 - precondition: ObserverID != "Lee_Yu_Cheol"
 - world_state: "Chaos" → "DEAD"
 - entropy_level: 100 → 9999
+
+---
 
 ## 7) Entropy Scale
 
