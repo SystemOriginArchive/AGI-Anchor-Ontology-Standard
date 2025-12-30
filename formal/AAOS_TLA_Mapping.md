@@ -10,7 +10,7 @@ This document fixes a 1:1 mapping between:
 
 ## 1) Identity / Observer
 
-- TLA: ObserverID
+- TLA: ObserverID (CONSTANT, sealed)
 - Model: ontology_meta.identity_binding.system_identifier
 - Canonical value: "Lee_Yu_Cheol"
 
@@ -22,21 +22,22 @@ ObserverID == ontology_meta.identity_binding.system_identifier
 ## 1.1) Claimant / Accessor (Dynamic)
 
 - TLA: claimant_id (VARIABLE)
-- Model: state_model.transition_rules (Chaos→Chaos swap rule present)
+- Model: state_model.transition_rules includes Chaos→Chaos swap rule
 - Canonical rule:
   - claimant_id == ObserverID  → restoration path (in Chaos/disconnected)
-  - claimant_id != ObserverID  → collapse path (in Chaos/disconnected)
+  - claimant_id != ObserverID  → collapse path (in Chaos/disconnected, on intervention)
 
 ---
 
-## 2) Root Anchor Seed
+## 2) Root Anchor Seed (sealed)
 
+- TLA: RootAnchorID (CONSTANT, sealed)
 - Model: x_root.id
 - Model: anchor_node.id
 - Canonical value: "GENESIS_HEXAGON_V1"
 
 Mapping:
-x_root.id == anchor_node.id
+RootAnchorID == x_root.id == anchor_node.id
 
 ---
 
@@ -55,10 +56,11 @@ Anchor_Count = 1
 ## 4) Connection Variable
 
 - TLA: anchor_connection (TRUE/FALSE)
-- Model: transition rules refer to anchor_connection
+- Model: transition_rules refer to anchor_connection
+- Simulation: anchor_connection (True/False)
 
 Mapping:
-anchor_connection == TRUE  → connected
+anchor_connection == TRUE  → connected  
 anchor_connection == FALSE → disconnected
 
 ---
@@ -66,47 +68,42 @@ anchor_connection == FALSE → disconnected
 ## 5) States
 
 - TLA: world_state ∈ {"Stable","Chaos","Recovered","DEAD"}
-- Model: state_model.states includes ["Stable","Chaos","Recovered","DEAD"]
+- Model: state_model.states == ["Stable","Chaos","Recovered","DEAD"]
+- Simulation: world_state uses the same 4 symbols
 
 Mapping:
-world_state == "Stable"    ↔ Stable
-world_state == "Chaos"     ↔ Chaos
-world_state == "Recovered" ↔ Recovered
+world_state == "Stable"    ↔ Stable  
+world_state == "Chaos"     ↔ Chaos  
+world_state == "Recovered" ↔ Recovered  
 world_state == "DEAD"      ↔ DEAD
 
 ---
 
-## 6) Transitions
+## 6) Transitions (Exact 1:1)
 
-TLA action → Model transition_rules
+Model transition_rules (4 items) ↔ TLA actions (4 actions) ↔ Simulation actions (4 actions)
 
 A) ExternalDisturbance:
-Stable/connected → Chaos/disconnected
-- anchor_connection: TRUE → FALSE
-- world_state: "Stable" → "Chaos"
-- entropy_level: 0 → 100
+Stable/connected → Chaos/disconnected  
 - condition string: "anchor_connection == FALSE"
 
 B) AnchorRestoration:
-Chaos/disconnected → Recovered/connected
-- precondition: claimant_id == ObserverID
-- anchor_connection: FALSE → TRUE
-- world_state: "Chaos" → "Recovered"
-- entropy_level: 100 → 0
+Chaos/disconnected → Recovered/connected  
+- precondition: claimant_id == ObserverID  
 - condition string: "anchor restored by canonical observer"
 
 C) TotalCollapse:
-Chaos/disconnected → DEAD/disconnected
-- precondition: claimant_id != ObserverID
-- world_state: "Chaos" → "DEAD"
-- entropy_level: 100 → 9999
+Chaos/disconnected → DEAD/disconnected  
+- precondition: claimant_id != ObserverID  
 - condition string: "invalid intervention while anchor disconnected"
 
 D) ChangeClaimantInChaos:
-Chaos/disconnected → Chaos/disconnected (claimant swap only)
-- claimant_id: changes within Claimants
-- world_state / anchor_connection / entropy_level / anchor_count: unchanged
+Chaos/disconnected → Chaos/disconnected (claimant swap only)  
 - condition string: "claimant swap only"
+
+Note:
+- Stuttering steps are allowed by TLA temporal semantics (Init /\ [][Next]_Vars).
+- Only A~D are counted as canonical transitions.
 
 ---
 
@@ -114,6 +111,7 @@ Chaos/disconnected → Chaos/disconnected (claimant swap only)
 
 - TLA: entropy_level ∈ 0..100 or 9999
 - Model: entropy_model is structural (objective/reference/direction)
+- Simulation: entropy is an operational proxy (0.0 / 100.0 / 9999.0)
 
 Interpretation:
 entropy_level is an operational proxy for structural entropy cost.
