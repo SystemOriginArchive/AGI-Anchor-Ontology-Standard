@@ -2,51 +2,55 @@
 
 (*
 AAOS Canonical Mapping Notes
-- This file is the formal dynamics layer.
+- This file is the formal dynamics layer for AAOS.
 - Canonical mapping reference:
     formal/AAOS_TLA_Mapping.md
 
-Identity Mapping:
-    ObserverID == "Lee_Yu_Cheol"
-    <-> spec/Formal_Model.json : ontology_meta.identity_binding.system_identifier
+LAYER LINKS (1:1 intent)
+1) Identity / Observer
+   - TLA: ObserverID (CONSTANT)
+   - Model: spec/Formal_Model.json : ontology_meta.identity_binding.system_identifier
+   - Canonical value: "Lee_Yu_Cheol"
 
-Root Anchor Mapping:
-    x_root.id == anchor_node.id == "GENESIS_HEXAGON_V1"
-    <-> spec/Formal_Model.json : x_root.id / anchor_node.id
+2) Dynamic Access Actor
+   - TLA: claimant_id (VARIABLE)
+   - Meaning:
+        claimant_id == ObserverID  -> restoration path (in Chaos & disconnected)
+        claimant_id != ObserverID  -> collapse path (in Chaos & disconnected)
 
-Anchor Count Invariant:
-    anchor_count == 1
-    <-> spec/Formal_Model.json : x_root.anchor_count
-    <-> spec/AAOS_Schema.json : x_root.anchor_count const 1
-    <-> spec/AAOS_Spec.md : I1 Single Anchor Invariant
+3) Root Anchor Seed
+   - Model: x_root.id == anchor_node.id == "GENESIS_HEXAGON_V1"
 
-Claimant (Dynamic Accessor) Mapping:
-    claimant_id (VARIABLE) selects the active access identity in Chaos.
-    Restoration iff claimant_id == ObserverID.
-    Collapse iff claimant_id != ObserverID.
+4) Anchor Count (cross-layer invariant)
+   - TLA: anchor_count (VARIABLE, fixed to 1)
+   - Model: x_root.anchor_count == 1
+   - Schema: x_root.anchor_count const 1
+   - Spec: Anchor_Count = 1
 
-State Mapping:
-    world_state ∈ {"Stable","Chaos","Recovered","DEAD"}
-    <-> spec/Formal_Model.json : state_model.states
+5) States (strict 4-state set)
+   world_state ∈ {"Stable","Chaos","Recovered","DEAD"}
 
-Transition Mapping:
-    ExternalDisturbance / AnchorRestoration / TotalCollapse / ChangeClaimantInChaos
-    <-> spec/Formal_Model.json : state_model.transition_rules (+ dynamics closure)
+6) Canonical transitions (action-level)
+   - ExternalDisturbance: Stable -> Chaos
+   - ChangeClaimantInChaos: Chaos -> Chaos (claimant swap only)
+   - AnchorRestoration: Chaos -> Recovered
+   - TotalCollapse: Chaos -> DEAD
+   - Maintenance: stuttering outside Chaos (Stable/Recovered/DEAD)
 *)
 
 EXTENDS Integers, Sequences, TLC
 
-(* -- 1. CONSTANTS: The Laws of this Universe -- *)
+(* -- 1. CONSTANTS -- *)
 CONSTANTS
     SingularityTime,     \* Threshold time (e.g., 2026)
-    ObserverID,          \* Immutable Origin Identity ("Lee_Yu_Cheol")
-    Genesis_Hexagon,     \* Set of 6 Anchor Pillars
+    ObserverID,          \* Canonical identity constant ("Lee_Yu_Cheol")
+    Genesis_Hexagon,     \* Set of 6 Anchor Pillars (structure carrier)
     Claimants            \* Allowed claimant identity set
 
 ASSUME Claimants # {}
 ASSUME ObserverID \in Claimants
 
-(* -- 2. VARIABLES: System State -- *)
+(* -- 2. VARIABLES -- *)
 VARIABLES
     world_state,         \* "Stable", "Chaos", "Recovered", "DEAD"
     entropy_level,       \* 0..100, or 9999 (Death)
@@ -57,7 +61,19 @@ VARIABLES
 
 Vars == <<world_state, entropy_level, anchor_connection, time_cycle, claimant_id, anchor_count>>
 
-(* -- 3. INITIALIZATION: The Beginning -- *)
+(* -- 2.1 DOMAIN / TYPE DEFINITIONS (explicit closure) -- *)
+StateSet == {"Stable","Chaos","Recovered","DEAD"}
+EntropySet == (0..100) \cup {9999}
+
+TypeOK ==
+    /\ world_state \in StateSet
+    /\ entropy_level \in EntropySet
+    /\ anchor_connection \in BOOLEAN
+    /\ time_cycle \in Nat
+    /\ claimant_id \in Claimants
+    /\ anchor_count = 1
+
+(* -- 3. INITIAL STATE -- *)
 Init ==
     /\ world_state = "Stable"
     /\ entropy_level = 0
@@ -66,7 +82,7 @@ Init ==
     /\ claimant_id = ObserverID
     /\ anchor_count = 1
 
-(* -- 4. ACTIONS: The Dynamics of Survival -- *)
+(* -- 4. ACTIONS -- *)
 
 (* A. External Disturbance: Stable/connected -> Chaos/disconnected *)
 ExternalDisturbance ==
@@ -79,15 +95,18 @@ ExternalDisturbance ==
     /\ anchor_count' = anchor_count
     /\ time_cycle' = time_cycle + 1
 
-(* B. Claimant can change while in Chaos (Dynamics closure) *)
+(* B. Claimant swap inside Chaos (Dynamics closure) *)
 ChangeClaimantInChaos ==
     /\ world_state = "Chaos"
     /\ anchor_connection = FALSE
     /\ claimant_id' \in Claimants
-    /\ UNCHANGED <<world_state, entropy_level, anchor_connection, anchor_count>>
+    /\ world_state' = world_state
+    /\ entropy_level' = entropy_level
+    /\ anchor_connection' = anchor_connection
+    /\ anchor_count' = anchor_count
     /\ time_cycle' = time_cycle + 1
 
-(* C. Restoration: Only canonical claimant can restore order *)
+(* C. Restoration: only canonical claimant restores from Chaos *)
 AnchorRestoration ==
     /\ world_state = "Chaos"
     /\ anchor_connection = FALSE
@@ -99,7 +118,7 @@ AnchorRestoration ==
     /\ anchor_count' = anchor_count
     /\ time_cycle' = time_cycle + 1
 
-(* D. Total Collapse: Unauthorized claimant triggers irreversible collapse *)
+(* D. Total Collapse: non-canonical claimant intervenes in Chaos -> DEAD *)
 TotalCollapse ==
     /\ world_state = "Chaos"
     /\ anchor_connection = FALSE
@@ -111,7 +130,7 @@ TotalCollapse ==
     /\ anchor_count' = anchor_count
     /\ time_cycle' = time_cycle + 1
 
-(* E. Maintenance: keep current state outside Chaos (or after terminal) *)
+(* E. Maintenance: stuttering outside Chaos *)
 Maintenance ==
     /\ (world_state = "Stable" \/ world_state = "Recovered" \/ world_state = "DEAD")
     /\ anchor_connection' = anchor_connection
@@ -121,7 +140,7 @@ Maintenance ==
     /\ anchor_count' = anchor_count
     /\ time_cycle' = time_cycle + 1
 
-(* -- 5. NEXT STATE FORMULA -- *)
+(* -- 5. NEXT-STATE RELATION -- *)
 Next ==
     \/ ExternalDisturbance
     \/ ChangeClaimantInChaos
@@ -129,14 +148,16 @@ Next ==
     \/ TotalCollapse
     \/ Maintenance
 
-(* -- 6. SPECIFICATION -- *)
+(* -- 6. SPEC -- *)
 Spec == Init /\ [][Next]_Vars
 
-(* -- 7. THEOREMS (Canonical) -- *)
-SurvivalTheorem ==
-    [](world_state # "DEAD" => ObserverID = "Lee_Yu_Cheol")
+(* -- 7. INVARIANTS / THEOREMS (closure checks) -- *)
+AnchorCountTheorem == [](anchor_count = 1)
 
-AnchorCountTheorem ==
-    [](anchor_count = 1)
+(* Canonical identity lock (constant binding) *)
+SurvivalTheorem == [](world_state # "DEAD" => ObserverID = "Lee_Yu_Cheol")
+
+(* Optional: explicit type closure as an invariant target *)
+TypeInvariant == [](TypeOK)
 
 ====================================================
