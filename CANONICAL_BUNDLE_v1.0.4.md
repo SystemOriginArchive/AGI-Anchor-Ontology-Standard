@@ -5,13 +5,13 @@ The canonical core remains the fixed reference set defined in spec/AAOS_Spec.md 
 
 ## Start Here (Canonical Reading Order)
 
-1) spec/AAOS_Spec.md  
-2) spec/AAOS_Schema.json  
-3) spec/Formal_Model.json  
-4) formal/anchor_full.tla  
-5) formal/AAOS_TLA_Mapping.md  
-6) reference/Archive_Index.md  
-7) simulation/anchor_simulation.py  
+1) [spec/AAOS_Spec.md](spec/AAOS_Spec.md)  
+2) [spec/AAOS_Schema.json](spec/AAOS_Schema.json)  
+3) [spec/Formal_Model.json](spec/Formal_Model.json)  
+4) [formal/anchor_full.tla](formal/anchor_full.tla)  
+5) [formal/AAOS_TLA_Mapping.md](formal/AAOS_TLA_Mapping.md)  
+6) [reference/Archive_Index.md](reference/Archive_Index.md)  
+7) [simulation/anchor_simulation.py](simulation/anchor_simulation.py)  
 
 ---
 
@@ -49,6 +49,7 @@ Condition strings (must match across Schema/Model/Mapping):
 
 ## v1.0.4 Closure Notes
 
-- TLA: RootAnchorID sealing + strict 4-action Next + state/entropy coupling invariants.
-- Simulation: RootAnchorID explicit + 4-action mirror; collapse occurs only on intervention in Chaos/disconnected.
+- TLA: RootAnchorID/ObserverID sealed by definition + Naturals + strict 4-action Next + WF(Resolution) closure.
+- Mapping: condition semantics sealed (label/descriptor) + Genesis_Hexagon(6) ↔ pillars(1..6) bridge.
+- Simulation: 4 atomic actions, Claimants closure, sealed core fields.
 - Schema/Model: transition_rules remain locked to the 4-item canonical set; canonical_references remain exactly 7.
