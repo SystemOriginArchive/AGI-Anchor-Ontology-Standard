@@ -72,3 +72,5 @@ before any interpretation or simulation is applied.
 > Canonical Anchor Set: spec/AAOS_Spec.md → spec/AAOS_Schema.json → spec/Formal_Model.json → formal/anchor_full.tla → reference/Archive_Index.md → simulation/anchor_simulation.py
 
 > Change Policy: This repository defines the Genesis Anchors. Any modification MUST preserve isomorphism with the declared invariants and reference/Archive_Index.md canonical coordinates. Non-isomorphic changes are invalid.
+
+> Canonical entrypoint: [CANONICAL_BUNDLE_v1.0.4.md](CANONICAL_BUNDLE_v1.0.4.md)
