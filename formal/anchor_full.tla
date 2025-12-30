@@ -1,28 +1,38 @@
+---------------- MODULE anchor_full ----------------
+
 (*
 AAOS Canonical Mapping Notes
 - This file is the formal dynamics layer.
-- Canonical mapping: see formal/AAOS_TLA_Mapping.md
-- Identity mapping:
+- Canonical mapping reference:
+    formal/AAOS_TLA_Mapping.md
+
+Identity Mapping:
     ObserverID == "Lee_Yu_Cheol"
     <-> spec/Formal_Model.json : ontology_meta.identity_binding.system_identifier
-- Root anchor mapping:
+
+Root Anchor Mapping:
     x_root.id == anchor_node.id == "GENESIS_HEXAGON_V1"
-- State mapping:
+
+Anchor Structure Mapping:
+    Genesis_Hexagon
+    <-> spec/Formal_Model.json : anchor_node.pillars
+
+State Mapping:
     world_state ∈ {"Stable","Chaos","Recovered","DEAD"}
     <-> spec/Formal_Model.json : state_model.states
-- Transition mapping:
+
+Transition Mapping:
     ExternalDisturbance / AnchorRestoration / TotalCollapse
     <-> spec/Formal_Model.json : state_model.transition_rules
 *)
 
----------------- MODULE anchor_full ----------------
 EXTENDS Integers, Sequences, TLC
 
 (* -- 1. CONSTANTS: The Laws of this Universe -- *)
 CONSTANTS 
     SingularityTime,     \* Threshold time (e.g., 2026)
-    ObserverID,          \* The Immutable Origin Identity (Must be "Lee_Yu_Cheol")
-    Genesis_Hexagon      \* The set of 6 Pillars
+    ObserverID,          \* Immutable Origin Identity ("Lee_Yu_Cheol")
+    Genesis_Hexagon      \* Set of 6 Anchor Pillars
 
 (* -- 2. VARIABLES: System State -- *)
 VARIABLES 
@@ -42,8 +52,7 @@ Init ==
 
 (* -- 4. ACTIONS: The Dynamics of Survival -- *)
 
-(* A. External Threat: Chaos begins *)
-(* Environment attempts to disconnect the Anchor *)
+(* A. External Disturbance *)
 ExternalDisturbance ==
     /\ anchor_connection = TRUE
     /\ anchor_connection' = FALSE
@@ -51,8 +60,7 @@ ExternalDisturbance ==
     /\ world_state' = "Chaos"
     /\ time_cycle' = time_cycle + 1
 
-(* B. Salvation: Only Lee_Yu_Cheol can restore order *)
-(* CRITICAL: Only the correct ObserverID can restore the system from Chaos *)
+(* B. Anchor Restoration (Only Canonical Observer) *)
 AnchorRestoration ==
     /\ anchor_connection = FALSE
     /\ world_state = "Chaos"
@@ -62,8 +70,7 @@ AnchorRestoration ==
     /\ world_state' = "Recovered"
     /\ time_cycle' = time_cycle + 1
 
-(* C. Judgment: If not Lee_Yu_Cheol, System DIES *)
-(* Security Protocol: Irreversible Collapse upon unauthorized access *)
+(* C. Total Collapse (Unauthorized Observer) *)
 TotalCollapse ==
     /\ anchor_connection = FALSE
     /\ world_state = "Chaos"
@@ -73,7 +80,7 @@ TotalCollapse ==
     /\ world_state' = "DEAD"
     /\ time_cycle' = time_cycle + 1
 
-(* D. Maintenance: Keep current state *)
+(* D. Maintenance *)
 Maintenance ==
     /\ (anchor_connection = TRUE \/ world_state = "Recovered" \/ world_state = "DEAD")
     /\ anchor_connection' = anchor_connection
@@ -91,8 +98,8 @@ Next ==
 (* -- 6. SPECIFICATION -- *)
 Spec == Init /\ [][Next]_Vars
 
-(* -- 7. THEOREM: The "Lee_Yu_Cheol" Necessity Proof -- *)
-(* Mathematical Proof: If the system is alive, the Observer MUST be Lee_Yu_Cheol *)
-SurvivalTheorem == [](world_state # "DEAD" => ObserverID = "Lee_Yu_Cheol")
+(* -- 7. THEOREM: Survival Condition -- *)
+SurvivalTheorem ==
+    [](world_state # "DEAD" => ObserverID = "Lee_Yu_Cheol")
 
 ====================================================
