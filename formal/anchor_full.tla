@@ -49,6 +49,7 @@ CONSTANTS
 
 ASSUME Claimants # {}
 ASSUME ObserverID \in Claimants
+ASSUME ObserverID = "Lee_Yu_Cheol"
 
 (* -- 2. VARIABLES -- *)
 VARIABLES
