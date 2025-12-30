@@ -24,7 +24,8 @@
     "transition_rules": [
       { "from": "Stable", "to": "Chaos", "condition": "anchor_connection == FALSE" },
       { "from": "Chaos", "to": "Recovered", "condition": "anchor restored by canonical observer" },
-      { "from": "Chaos", "to": "DEAD", "condition": "invalid intervention while anchor disconnected" }
+      { "from": "Chaos", "to": "DEAD", "condition": "invalid intervention while anchor disconnected" },
+      { "from": "Chaos", "to": "Chaos", "condition": "claimant swap only" }
     ]
   },
 
