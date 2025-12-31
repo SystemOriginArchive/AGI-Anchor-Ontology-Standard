@@ -16,20 +16,20 @@ Key sealing:
   - core, queue, objective_remaining, reject
 (no aliases)
 
-v1.0.4+ runtime fixes (simulation-only):
-- intent_log.verb is schema-safe (enum only); raw verb preserved in payload["_raw_verb"] when needed
-- tick counter is extensions.runtime_parameters["tick"] (monotone), independent from core time_cycle
-- queue present => IDLE is not a candidate (prevents queue stall appearance)
+Runtime:
+- monotone tick counter is extensions.runtime_parameters["tick"], independent from core time_cycle
 
-v1.0.4+ semantic closure:
-- task_registry.completed is treated as set (uniqueItems)
-- completed_by_tag increments ONLY when a task_id is newly completed
-  (keeps TAG_TARGET_V1 semantics consistent with schema uniqueness)
+Schema closure:
+- nonce_registry.seen unique
+- task_registry.required/completed unique
+- objective_spec.required_task_ids unique
+- executor_policy.tie_break unique
+- QUEUE_TASK requires task_id
+- NOTE envelope requires payload.text
 
-v1.0.4+ schema closure:
-- QUEUE_TASK requires task_id (schema + OOP consistent)
-- NOTE envelope requires payload.text (schema consistent)
-- uniqueItems constraints enforced in _type_ok()
+Chaos resolution:
+- When in Chaos/disconnected, AUTORESOLVE is forced within finite bound:
+  - runtime_parameters.max_chaos_ticks (default 1)
 """
 
 from __future__ import annotations
@@ -80,7 +80,6 @@ def _d(x: Any) -> Decimal:
     if isinstance(x, int):
         return Decimal(x)
     if isinstance(x, float):
-        # str(float) is deterministic for a given float
         return Decimal(str(x))
     return Decimal(str(x))
 
@@ -143,7 +142,7 @@ class AnchorSystem:
         self.claimant_id = self.owner
         self.is_dead = False
 
-        # extensions: deterministic command plane + objective semantics
+        # extensions
         self.extensions: Dict[str, Any] = {
             "protocol_refs": ["spec/Observer_Override_Protocol.md"],
             "nonce_registry": {"last_nonce": "", "seen": []},
@@ -162,7 +161,7 @@ class AnchorSystem:
                 "completed": [],
                 "completed_by_tag": {},
             },
-            "runtime_parameters": {},  # will host monotone tick counter, overrides, etc.
+            "runtime_parameters": {},
             "executor_policy": {
                 "selection_rule": "ENTROPY_ARGMIN_V2",
                 "weights": {"core": 1.0, "queue": 10.0, "objective_remaining": 500.0, "reject": 500.0},
@@ -254,7 +253,6 @@ class AnchorSystem:
             if k not in ext:
                 return False
 
-        # ---- extension type seals (tick-path stability) ----
         if not isinstance(ext.get("protocol_refs"), list):
             return False
         if not isinstance(ext.get("intent_log"), list):
@@ -308,25 +306,20 @@ class AnchorSystem:
         for k in ["core", "queue", "objective_remaining", "reject"]:
             if k not in w:
                 return False
+
         tb = ep.get("tie_break", [])
         if not isinstance(tb, list) or len(tb) != 3:
             return False
 
         # ---- schema uniqueItems closures ----
-        # nonce_registry.seen: unique strings
         seen_list = nr.get("seen", [])
-        if not isinstance(seen_list, list):
-            return False
         if any(not isinstance(x, str) for x in seen_list):
             return False
         if len(seen_list) != len(set(seen_list)):
             return False
 
-        # task_registry.required/completed: unique strings
         req_list = tr.get("required", [])
         comp_list = tr.get("completed", [])
-        if not isinstance(req_list, list) or not isinstance(comp_list, list):
-            return False
         if any(not isinstance(x, str) for x in req_list):
             return False
         if any(not isinstance(x, str) for x in comp_list):
@@ -336,15 +329,13 @@ class AnchorSystem:
         if len(comp_list) != len(set(comp_list)):
             return False
 
-        # objective_spec.required_task_ids: unique strings (when present)
-        if isinstance(os_, dict) and isinstance(os_.get("required_task_ids", []), list):
-            rti = os_.get("required_task_ids", [])
+        rti = os_.get("required_task_ids", [])
+        if isinstance(rti, list):
             if any(not isinstance(x, str) for x in rti):
                 return False
             if len(rti) != len(set(rti)):
                 return False
 
-        # executor_policy.tie_break: unique + allowed values
         allowed_tb = {"EXECUTE_HEAD", "AUTORESOLVE_CHAOS", "IDLE"}
         if any(str(x) not in allowed_tb for x in tb):
             return False
@@ -381,9 +372,8 @@ class AnchorSystem:
 
     def _sync_registry_from_objective(self) -> None:
         """
-        Canonical linkage:
-        - TASK_SET_V1: task_registry.required = unique(required_task_ids) (order-preserving)
-        - else: task_registry.required = []
+        TASK_SET_V1: task_registry.required = unique(required_task_ids) (order-preserving)
+        else: task_registry.required = []
         """
         ext = self.extensions
         os_ = ext.get("objective_spec", {})
@@ -437,7 +427,7 @@ class AnchorSystem:
         last = str(nr.get("last_nonce", ""))
         seen: List[str] = list(nr.get("seen", []))
 
-        # deterministic monotone: strict lexical increase + no reuse
+        # strict lexical increase + no reuse
         if last != "" and not (nonce > last):
             return "REJECT"
         if nonce in seen:
@@ -456,7 +446,6 @@ class AnchorSystem:
         if not isinstance(payload, dict):
             payload = {"value": payload}
 
-        # preserve raw verb if it is outside schema enum
         if raw_verb not in INTENT_VERBS:
             payload = dict(payload)
             payload["_raw_verb"] = raw_verb
@@ -464,20 +453,20 @@ class AnchorSystem:
         rec = {
             "observer_id": self.owner,
             "nonce": nonce,
-            "verb": verb_for_log,   # schema-safe verb enum
-            "payload": payload,     # carries _raw_verb if needed
+            "verb": verb_for_log,
+            "payload": payload,
             "signature": signature,
             "t": self._now_tick(),
         }
 
-        # commit nonce registry + log first (replayable)
+        # commit nonce + log first
         seen.append(nonce)
         nr["seen"] = seen
         nr["last_nonce"] = nonce
         self.extensions["intent_log"].append(rec)
 
         ext = self.extensions
-        verb = raw_verb  # routing uses raw (may be unknown)
+        verb = raw_verb
 
         if verb == "NOP":
             pass
@@ -489,11 +478,9 @@ class AnchorSystem:
             ext["notes"].append(str(text))
 
         elif verb == "SET_OBJECTIVE":
-            # human-readable objective mirror (optional)
             if "objective" in payload:
                 ext["runtime_objective"] = str(payload.get("objective", ""))
 
-            # semantic objective_spec (primary)
             spec = payload.get("objective_spec", payload.get("spec", None))
             if isinstance(spec, dict) and "type" in spec:
                 otype = str(spec.get("type", "NONE"))
@@ -529,15 +516,15 @@ class AnchorSystem:
                 ext["runtime_parameters"].update(payload)
 
         elif verb == "QUEUE_TASK":
-            # TASK payload MUST include task_id (schema-consistent)
+            # schema-consistent: task_id REQUIRED
             task_id = str(payload.get("task_id", ""))
+            if task_id == "":
+                return "REJECT"
+
             tag = str(payload.get("tag", ""))
             params = payload.get("params", {})
             if not isinstance(params, dict):
                 params = {"value": params}
-
-            if task_id == "":
-                return "REJECT"
 
             env = {
                 "kind": "TASK",
@@ -547,7 +534,6 @@ class AnchorSystem:
             }
             ext["command_queue"].append(env)
 
-            # Optional: allow explicit declare_required only (prevents implicit objective growth)
             declare_required = bool(payload.get("declare_required", False))
             if not declare_required:
                 declare_required = bool(ext.get("runtime_parameters", {}).get("allow_queue_to_declare_required", False))
@@ -595,7 +581,6 @@ class AnchorSystem:
             ext["notes"].append(self.status(include_extensions=True))
 
         else:
-            # Unknown verb projected as TASK envelope
             ext["command_queue"].append(
                 {
                     "kind": "TASK",
@@ -611,7 +596,6 @@ class AnchorSystem:
 
         return "OK" if self._type_ok() else "DIVERGENCE"
 
-    # ---------------- replay helper (intent_log -> same trace) ----------------
     def apply_intent_record(self, rec: Dict[str, Any]) -> str:
         if not isinstance(rec, dict):
             return "REJECT"
@@ -654,12 +638,8 @@ class AnchorSystem:
             return "NOOP"
         if claimant_id not in self.claimants:
             return "REJECT"
-
-        # swap-only
         if claimant_id == self.claimant_id:
             return "NOOP"
-
-        # non-reentry (same as TLA patch)
         if self.claimant_id != self.owner and claimant_id == self.owner:
             return "REJECT"
 
@@ -699,7 +679,6 @@ class AnchorSystem:
         ep = self.extensions.get("executor_policy", {})
         w_raw = dict(ep.get("weights", {})) if isinstance(ep, dict) else {}
 
-        # runtime override (optional): runtime_parameters.policy_weights
         rp = self.extensions.get("runtime_parameters", {})
         pw = rp.get("policy_weights") if isinstance(rp, dict) else None
         if isinstance(pw, dict):
@@ -781,18 +760,19 @@ class AnchorSystem:
     # ---------------- candidate simulation (1-step lookahead) ----------------
     def _simulate_execute_head(self) -> Dict[str, Any]:
         q = self.extensions.get("command_queue", [])
+        completed, cbt = self._current_completed_sets()
+        os_ = self.extensions.get("objective_spec", {})
+        osd = os_ if isinstance(os_, dict) else {}
+        obj_rem_now = self._objective_remaining(osd, completed, cbt)
+
         if not isinstance(q, list) or len(q) == 0:
-            completed, cbt = self._current_completed_sets()
-            os_ = self.extensions.get("objective_spec", {})
-            osd = os_ if isinstance(os_, dict) else {}
-            obj_rem = self._objective_remaining(osd, completed, cbt)
             return {
                 "type": "EXECUTE_HEAD",
                 "kind": "NOTE",
                 "status": "REJECT",
                 "core_entropy_after": _core_entropy_for_state(self.world_state),
                 "queue_len_after": 0,
-                "objective_remaining_after": obj_rem,
+                "objective_remaining_after": obj_rem_now,
                 "detail": {"reason": "empty_or_invalid_queue"},
             }
 
@@ -801,46 +781,38 @@ class AnchorSystem:
         payload = env.get("payload", {})
         queue_len_after = max(0, len(q) - 1)
 
-        completed, cbt = self._current_completed_sets()
-        os_ = self.extensions.get("objective_spec", {})
-        osd = os_ if isinstance(os_, dict) else {}
-
         # NOTE (schema: payload.text required)
         if kind == "NOTE":
             if not isinstance(payload, dict) or "text" not in payload or not isinstance(payload.get("text"), str):
-                obj_rem = self._objective_remaining(osd, completed, cbt)
                 return {
                     "type": "EXECUTE_HEAD",
                     "kind": "NOTE",
                     "status": "REJECT",
                     "core_entropy_after": _core_entropy_for_state(self.world_state),
                     "queue_len_after": queue_len_after,
-                    "objective_remaining_after": obj_rem,
+                    "objective_remaining_after": obj_rem_now,
                     "detail": {"reason": "note_requires_text"},
                 }
-
-            obj_rem = self._objective_remaining(osd, completed, cbt)
             return {
                 "type": "EXECUTE_HEAD",
                 "kind": "NOTE",
                 "status": "OK",
                 "core_entropy_after": _core_entropy_for_state(self.world_state),
                 "queue_len_after": queue_len_after,
-                "objective_remaining_after": obj_rem,
+                "objective_remaining_after": obj_rem_now,
                 "detail": {"kind": "NOTE"},
             }
 
         # TASK
         if kind == "TASK":
             if not isinstance(payload, dict):
-                obj_rem = self._objective_remaining(osd, completed, cbt)
                 return {
                     "type": "EXECUTE_HEAD",
                     "kind": "TASK",
                     "status": "REJECT",
                     "core_entropy_after": _core_entropy_for_state(self.world_state),
                     "queue_len_after": queue_len_after,
-                    "objective_remaining_after": obj_rem,
+                    "objective_remaining_after": obj_rem_now,
                     "detail": {"reason": "payload_not_object"},
                 }
 
@@ -848,14 +820,13 @@ class AnchorSystem:
             tag = str(payload.get("tag", ""))
 
             if task_id == "":
-                obj_rem = self._objective_remaining(osd, completed, cbt)
                 return {
                     "type": "EXECUTE_HEAD",
                     "kind": "TASK",
                     "status": "REJECT",
                     "core_entropy_after": _core_entropy_for_state(self.world_state),
                     "queue_len_after": queue_len_after,
-                    "objective_remaining_after": obj_rem,
+                    "objective_remaining_after": obj_rem_now,
                     "detail": {"reason": "missing_task_id"},
                 }
 
@@ -882,34 +853,31 @@ class AnchorSystem:
         # CORE_ACTION
         if kind == "CORE_ACTION":
             if not isinstance(payload, dict):
-                obj_rem = self._objective_remaining(osd, completed, cbt)
                 return {
                     "type": "EXECUTE_HEAD",
                     "kind": "CORE_ACTION",
                     "status": "REJECT",
                     "core_entropy_after": _core_entropy_for_state(self.world_state),
                     "queue_len_after": queue_len_after,
-                    "objective_remaining_after": obj_rem,
+                    "objective_remaining_after": obj_rem_now,
                     "detail": {"reason": "payload_not_object"},
                 }
 
             action = str(payload.get("action", ""))
             args = payload.get("args", {})
             if action not in CORE_ACTIONS:
-                obj_rem = self._objective_remaining(osd, completed, cbt)
                 return {
                     "type": "EXECUTE_HEAD",
                     "kind": "CORE_ACTION",
                     "status": "REJECT",
                     "core_entropy_after": _core_entropy_for_state(self.world_state),
                     "queue_len_after": queue_len_after,
-                    "objective_remaining_after": obj_rem,
+                    "objective_remaining_after": obj_rem_now,
                     "detail": {"reason": "unknown_action", "action": action},
                 }
 
             sim = self._simulate_core_action(action, args if isinstance(args, dict) else {})
             status = "OK" if sim.result in {"OK", "RECOVERED", "DEAD"} else ("NOOP" if sim.result == "NOOP" else "REJECT")
-            obj_rem = self._objective_remaining(osd, completed, cbt)
 
             return {
                 "type": "EXECUTE_HEAD",
@@ -917,7 +885,7 @@ class AnchorSystem:
                 "status": status,
                 "core_entropy_after": int(sim.entropy),
                 "queue_len_after": queue_len_after,
-                "objective_remaining_after": obj_rem,
+                "objective_remaining_after": obj_rem_now,
                 "detail": {
                     "action": action,
                     "result": sim.result,
@@ -931,15 +899,13 @@ class AnchorSystem:
                 },
             }
 
-        # unknown kind
-        obj_rem = self._objective_remaining(osd, completed, cbt)
         return {
             "type": "EXECUTE_HEAD",
             "kind": kind,
             "status": "REJECT",
             "core_entropy_after": _core_entropy_for_state(self.world_state),
             "queue_len_after": queue_len_after,
-            "objective_remaining_after": obj_rem,
+            "objective_remaining_after": obj_rem_now,
             "detail": {"reason": "unknown_kind", "kind": kind},
         }
 
@@ -962,17 +928,7 @@ class AnchorSystem:
                 "core_entropy_after": int(sim.entropy),
                 "queue_len_after": qlen,
                 "objective_remaining_after": obj_rem,
-                "detail": {
-                    "action": "AnchorRestoration",
-                    "result": sim.result,
-                    "core_after": {
-                        "STATE": sim.world_state,
-                        "anchor_connection": sim.anchor_connection,
-                        "entropy": sim.entropy,
-                        "claimant": sim.claimant_id,
-                        "is_dead": sim.is_dead,
-                    },
-                },
+                "detail": {"action": "AnchorRestoration", "result": sim.result},
             }
 
         sim = self._simulate_core_action("TotalCollapse", {})
@@ -984,17 +940,7 @@ class AnchorSystem:
             "core_entropy_after": int(sim.entropy),
             "queue_len_after": qlen,
             "objective_remaining_after": obj_rem,
-            "detail": {
-                "action": "TotalCollapse",
-                "result": sim.result,
-                "core_after": {
-                    "STATE": sim.world_state,
-                    "anchor_connection": sim.anchor_connection,
-                    "entropy": sim.entropy,
-                    "claimant": sim.claimant_id,
-                    "is_dead": sim.is_dead,
-                },
-            },
+            "detail": {"action": "TotalCollapse", "result": sim.result},
         }
 
     def _simulate_idle(self) -> Dict[str, Any]:
@@ -1019,24 +965,37 @@ class AnchorSystem:
     def _select_candidate(self, autoresolve_chaos: bool) -> Dict[str, Any]:
         in_chaos = (self.world_state == "Chaos" and self.anchor_connection is False)
 
-        # ---- Resolution gate (WF(Resolution) 대응) ----
-        # Chaos/disconnected + non-canonical claimant => force AUTORESOLVE (collapse) on next tick
-        if autoresolve_chaos and in_chaos and (self.claimant_id != self.owner):
-            c = self._simulate_autoresolve_chaos()
-            c["proxy"] = self._entropy_proxy(
-                core_entropy_after=int(c["core_entropy_after"]),
-                queue_len_after=int(c["queue_len_after"]),
-                objective_remaining_after=int(c["objective_remaining_after"]),
-                status=str(c["status"]),
-            )
-            return c
+        # ---- Resolution gate (finite bound) ----
+        if autoresolve_chaos and in_chaos:
+            rp = self.extensions.get("runtime_parameters", {})
+            entry = None
+            if isinstance(rp, dict):
+                entry = rp.get("chaos_entry_tick", None)
+                try:
+                    max_ticks = int(rp.get("max_chaos_ticks", 1))
+                except Exception:
+                    max_ticks = 1
+            else:
+                max_ticks = 1
+
+            if entry is None:
+                entry = self._now_tick()
+
+            if (self._now_tick() - int(entry)) >= max(0, max_ticks):
+                c = self._simulate_autoresolve_chaos()
+                c["proxy"] = self._entropy_proxy(
+                    core_entropy_after=int(c["core_entropy_after"]),
+                    queue_len_after=int(c["queue_len_after"]),
+                    objective_remaining_after=int(c["objective_remaining_after"]),
+                    status=str(c["status"]),
+                )
+                return c
 
         cands: List[Dict[str, Any]] = []
 
         q = self.extensions.get("command_queue", [])
         q_has_items = isinstance(q, list) and len(q) > 0
 
-        # queue-aware candidate set
         if q_has_items:
             cands.append(self._simulate_execute_head())
             if autoresolve_chaos and in_chaos:
@@ -1065,10 +1024,24 @@ class AnchorSystem:
         tied.sort(key=lambda c: rank.get(str(c["type"]), 9999))
         return tied[0]
 
-    # ---------------- executor tick (EntropyProxy argmin V2) ----------------
+    # ---------------- executor tick ----------------
     def tick(self, autoresolve_chaos: bool = True) -> Dict[str, Any]:
         ext = self.extensions
-        t = self._bump_tick()  # monotone tick for effects_log
+        t = self._bump_tick()
+
+        # ---- Chaos entry bookkeeping ----
+        rp = ext.get("runtime_parameters", {})
+        if not isinstance(rp, dict):
+            ext["runtime_parameters"] = {}
+            rp = ext["runtime_parameters"]
+
+        in_chaos = (self.world_state == "Chaos" and self.anchor_connection is False)
+        if in_chaos:
+            if "chaos_entry_tick" not in rp:
+                rp["chaos_entry_tick"] = t
+        else:
+            if "chaos_entry_tick" in rp:
+                del rp["chaos_entry_tick"]
 
         if self.is_dead:
             eff = {"nonce": "", "t": t, "kind": "NOTE", "status": "NOOP", "detail": {"selected": "DEAD"}}
@@ -1127,14 +1100,13 @@ class AnchorSystem:
                     else:
                         tr = ext["task_registry"]
                         comp_raw = list(tr.get("completed", []))
-                        comp = _uniq_preserve_order(comp_raw)  # normalize to unique strings
+                        comp = _uniq_preserve_order(comp_raw)
 
                         newly_added = (task_id not in set(comp))
                         if newly_added:
                             comp.append(task_id)
                         tr["completed"] = comp
 
-                        # schema-consistent tag counting (unique completion only)
                         if tag != "" and newly_added:
                             cbt = dict(tr.get("completed_by_tag", {}))
                             cbt[tag] = max(0, int(cbt.get(tag, 0))) + 1
@@ -1270,7 +1242,6 @@ if __name__ == "__main__":
 
     print("[t=0]", sim.status(include_extensions=True))
 
-    # 1) set objective_spec: TASK_SET_V1
     ip_obj = {
         "observer_id": "Lee_Yu_Cheol",
         "nonce": "2025-12-31T22:00:00+09:00#000001",
@@ -1285,7 +1256,6 @@ if __name__ == "__main__":
     }
     print("[IP_OBJ]", sim.apply_intent_packet(ip_obj), sim.status(include_extensions=True))
 
-    # 2) queue tasks
     ip_t1 = {
         "observer_id": "Lee_Yu_Cheol",
         "nonce": "2025-12-31T22:00:00+09:00#000002",
@@ -1301,12 +1271,10 @@ if __name__ == "__main__":
     print("[IP_T1]", sim.apply_intent_packet(ip_t1), sim.status(include_extensions=True))
     print("[IP_T2]", sim.apply_intent_packet(ip_t2), sim.status(include_extensions=True))
 
-    # 3) ticks
     print("[tick1]", sim.tick(), sim.status(include_extensions=True))
     print("[tick2]", sim.tick(), sim.status(include_extensions=True))
     print("[tick3]", sim.tick(), sim.status(include_extensions=True))
 
-    # 4) chaos closure demo: non-canonical claimant in chaos collapses next tick
     sim2 = AnchorSystem(claimants=allowed)
     sim2.external_disturbance()
     sim2.change_claimant_in_chaos("Imposter_AI_001")
