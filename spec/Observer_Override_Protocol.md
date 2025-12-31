@@ -76,8 +76,8 @@ Minimal canonical packet form (runtime input):
     }
   },
   "signature": ""
-}
-<div></div>
+      }
+
 
 Nonce rule:
 - Nonce MUST be strictly increasing (lexical)
