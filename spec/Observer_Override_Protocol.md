@@ -39,9 +39,9 @@ All Observer intent effects must be expressed as deltas on:
 - `extensions.intent_log`
 - `extensions.command_queue`
 - `extensions.effects_log`
-- `extensions.runtime_objective`     (human-readable mirror)
-- `extensions.objective_spec`        (typed semantics)
-- `extensions.task_registry`         (required/completed)
+- `extensions.runtime_objective`
+- `extensions.objective_spec`
+- `extensions.task_registry`
 - `extensions.runtime_parameters`
 - `extensions.executor_policy`
 - `extensions.notes`
@@ -52,99 +52,129 @@ No other fields are modified by OOP.
 
 ## 4) Intent Packet (Canonical)
 
-Minimal JSON:
+Intent packets are appended to `extensions.intent_log[]`.
+They are NOT executed directly.
 
-```json
+Minimal canonical form:
+
 {
   "observer_id": "Lee_Yu_Cheol",
   "nonce": "2025-12-31T22:00:00+09:00#000001",
-  "intent": {
-    "verb": "SET_OBJECTIVE",
-    "payload": {
-      "objective": "complete tasks T1,T2",
-      "objective_spec": {
-        "type": "TASK_SET_V1",
-        "required_task_ids": ["T1", "T2"]
-      }
+  "verb": "SET_OBJECTIVE",
+  "payload": {
+    "objective": "complete tasks T1,T2",
+    "objective_spec": {
+      "type": "TASK_SET_V1",
+      "required_task_ids": ["T1", "T2"]
     }
   },
-  "signature": ""
+  "signature": "",
+  "t": 0
 }
-```
 
 Nonce rule:
-
-* Nonce MUST be strictly increasing (lexical) and MUST NOT repeat.
+- Nonce MUST be strictly increasing (lexical)
+- Nonce MUST NOT repeat
 
 ---
 
 ## 5) Verb Set (extensions-only)
 
-* `NOP`
-* `NOTE_APPEND`
-* `SET_OBJECTIVE`
-  - sets `runtime_objective` (optional mirror string)
-  - sets `objective_spec` (typed semantics)
-  - syncs `task_registry.required` when type is TASK_SET_V1
-* `SET_PARAMETER`
-* `QUEUE_TASK` → pushes a `TASK` envelope (must include `task_id`)
-* `QUEUE_CORE_ACTION` → pushes a `CORE_ACTION` envelope (one of 4)
-* `EXPORT_STATE`
+Valid verbs:
 
-Unknown verbs are projected as a `TASK` envelope with `task_id = "UNKNOWN_VERB:<verb>"`.
+- `NOP`
+- `NOTE_APPEND`
+- `SET_OBJECTIVE`
+  - sets `runtime_objective`
+  - sets `objective_spec`
+  - syncs `task_registry.required` when type is TASK_SET_V1
+- `SET_PARAMETER`
+- `QUEUE_TASK`
+- `QUEUE_CORE_ACTION`
+- `EXPORT_STATE`
+
+Unknown verbs are normalized as:
+- `QUEUE_TASK`
+- `payload.task_id = "UNKNOWN_VERB:<raw_verb>"`
 
 ---
 
-## 6) Typed Command Envelopes
+## 6) Typed Command Envelopes (command_queue[])
 
-`command_queue[]` contains ONLY:
+`extensions.command_queue[]` contains ONLY CommandEnvelope records.
 
-```json
+Envelope shape:
+
 {
   "kind": "TASK | CORE_ACTION | NOTE",
-  "nonce": "…",
+  "nonce": "...",
   "t": 0,
-  "payload": { }
+  "payload": { ... }
 }
-```
 
-TASK payload (semantic):
+TASK (minimal):
 
-```json
 {
-  "task_id": "T1",
-  "tag": "work",
-  "params": { }
+  "kind": "TASK",
+  "nonce": "...",
+  "t": 0,
+  "payload": {
+    "task_id": "T1",
+    "tag": "",
+    "params": {}
+  }
 }
-```
 
-CORE_ACTION payload:
+NOTE (minimal):
 
-```json
 {
-  "action": "ExternalDisturbance | ChangeClaimantInChaos | AnchorRestoration | TotalCollapse",
-  "args": { }
+  "kind": "NOTE",
+  "nonce": "...",
+  "t": 0,
+  "payload": {
+    "text": "..."
+  }
 }
-```
+
+CORE_ACTION (minimal):
+
+{
+  "kind": "CORE_ACTION",
+  "nonce": "...",
+  "t": 0,
+  "payload": {
+    "action": "ExternalDisturbance",
+    "args": {}
+  }
+}
+
+Allowed CORE_ACTION values:
+- ExternalDisturbance
+- ChangeClaimantInChaos
+- AnchorRestoration
+- TotalCollapse
 
 ---
 
-## 7) Objective Spec DSL (Semantic Closure)
+## 7) Objective Spec DSL
 
-`objective_spec.type` is one of:
+objective_spec.type ∈:
 
-- `NONE`
-- `TASK_SET_V1`
-  - requires: `required_task_ids[]`
-  - objective is satisfied when all required task_ids are present in `task_registry.completed[]`
-- `TAG_TARGET_V1`
-  - requires: `required_tag`, `required_tag_count`
-  - objective is satisfied when `task_registry.completed_by_tag[required_tag] >= required_tag_count`
+- NONE
+- TASK_SET_V1
+- TAG_TARGET_V1
 
-Task completion semantics:
-- executing a `TASK` envelope marks `task_registry.completed += task_id`
-- if `tag != ""`, increments `task_registry.completed_by_tag[tag]`
-* `completed_by_tag[tag]` increments ONLY when a `task_id` is newly added to `task_registry.completed[]`.
+TASK_SET_V1:
+- requires required_task_ids[]
+- satisfied when all ∈ task_registry.completed[]
+
+TAG_TARGET_V1:
+- requires required_tag, required_tag_count
+- satisfied when completed_by_tag[tag] ≥ required_tag_count
+
+Task completion:
+- TASK execution adds task_id to completed[]
+- tag increments ONLY on first completion
 
 ---
 
@@ -152,7 +182,6 @@ Task completion semantics:
 
 Policy:
 
-```json
 {
   "selection_rule": "ENTROPY_ARGMIN_V2",
   "weights": {
@@ -163,33 +192,28 @@ Policy:
   },
   "tie_break": ["EXECUTE_HEAD", "AUTORESOLVE_CHAOS", "IDLE"]
 }
-```
 
-Candidate set per tick:
-1) EXECUTE_HEAD (consume one envelope FIFO)
-2) AUTORESOLVE_CHAOS (if Chaos/disconnected, resolve via Restoration/Collapse)
-3) IDLE
-### Candidate set is queue-aware (v1.0.4+)
+Candidate set:
 
-If len(command_queue) > 0:
-1) EXECUTE_HEAD (consume exactly one envelope FIFO)
-2) AUTORESOLVE_CHAOS (only if Chaos/disconnected)
-(IDLE is not a candidate when queue is non-empty.)
+If command_queue not empty:
+1) EXECUTE_HEAD
+2) AUTORESOLVE_CHAOS
 
-If len(command_queue) == 0:
-1) AUTORESOLVE_CHAOS (only if Chaos/disconnected)
+If empty:
+1) AUTORESOLVE_CHAOS
 2) IDLE
 
 Objective remaining:
-- `objective_remaining = remaining count` derived from `objective_spec` and `task_registry`:
-  - TASK_SET_V1: `|required_task_ids - completed|`
-  - TAG_TARGET_V1: `max(0, required_tag_count - completed_by_tag[tag])`
+- TASK_SET_V1: |required − completed|
+- TAG_TARGET_V1: max(0, required − completed_by_tag)
 
-EntropyProxy (1-step lookahead):
-`EntropyProxy = w_core*core_entropy_after + w_queue*queue_len_after + w_obj*objective_remaining_after + w_reject*reject_term`
+EntropyProxy:
+EntropyProxy =
+  w_core*core_entropy_after +
+  w_queue*queue_len_after +
+  w_obj*objective_remaining_after +
+  w_reject*reject_term
 
 Selection:
-- pick argmin EntropyProxy
-- ties broken deterministically by `tie_break`
-
-This closes “meaning of following” at the same place the executor selects the next step.
+- argmin EntropyProxy
+- deterministic tie_break
