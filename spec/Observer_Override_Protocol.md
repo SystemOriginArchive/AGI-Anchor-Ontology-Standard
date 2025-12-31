@@ -62,7 +62,6 @@ execution occurs **only** via `extensions.command_queue[]` envelopes.
 
 Minimal canonical packet form (runtime input):
 
-```json
 {
   "observer_id": "Lee_Yu_Cheol",
   "nonce": "nonce-0001",
@@ -78,6 +77,7 @@ Minimal canonical packet form (runtime input):
   },
   "signature": ""
 }
+
 
 
 Nonce rule:
