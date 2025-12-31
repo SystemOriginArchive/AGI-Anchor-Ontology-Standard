@@ -84,9 +84,8 @@ Let `Q = extensions.command_queue`.
 1) `AUTORESOLVE_CHAOS` (only if Chaos/disconnected)
 2) `IDLE`
 
-Additionally, when `world_state == Chaos` and `anchor_connection == FALSE` and `claimant_id != Observer`,
-`AUTORESOLVE_CHAOS` is selected as the next tick (Resolution gate), matching WF(Resolution).
-
+Additionally, when `world_state == Chaos` and `anchor_connection == FALSE` and `claimant_id != ObserverID`,
+`AUTORESOLVE_CHAOS` is selected as the next tick (Resolution gate), a deterministic refinement satisfying WF(Resolution).
 ### 3.3 EntropyProxy (1-step lookahead, no aliases)
 
 Simulation uses a single deterministic selection rule.
