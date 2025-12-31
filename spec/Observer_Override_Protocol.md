@@ -53,11 +53,12 @@ No other fields are modified by OOP.
 ## 4) Intent Packet (Canonical)
 
 An intent packet is a runtime input that is:
-1. validated (identity + nonce),
-2. appended to `extensions.intent_log[]`,
-3. optionally projected into `extensions.*` and/or `extensions.command_queue[]`.
+- validated (identity + nonce)
+- appended to `extensions.intent_log[]`
+- optionally projected into `extensions.*` and/or `extensions.command_queue[]`
 
-Intent packets do NOT execute actions directly; execution occurs **only** via `extensions.command_queue[]` envelopes.
+Intent packets do NOT execute actions directly;  
+execution occurs **only** via `extensions.command_queue[]` envelopes.
 
 Minimal canonical packet form (runtime input):
 
@@ -74,9 +75,10 @@ Minimal canonical packet form (runtime input):
         "required_task_ids": ["T1", "T2"]
       }
     }
+  },
   "signature": ""
-      }
-      }
+}
+
 
 
 Nonce rule:
