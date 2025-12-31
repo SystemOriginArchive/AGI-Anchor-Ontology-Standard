@@ -78,9 +78,6 @@ Minimal canonical packet form (runtime input):
   },
 }
 
----
-
-
 Nonce rule:
 - Nonce MUST be strictly increasing (lexical)
 - Nonce MUST NOT repeat
@@ -88,7 +85,7 @@ Nonce rule:
 Commit rule (atomic):
 - If a packet is REJECT, it MUST NOT be committed to `nonce_registry` and MUST NOT be appended to `intent_log[]`.
 
-
+---
 
 ## 5) Verb Set (extensions-only)
 
@@ -117,7 +114,7 @@ Unknown verbs:
 
 ---
 
-```md
+
 ## 6) Typed Command Envelopes (`command_queue[]`)
 
 `extensions.command_queue[]` contains ONLY CommandEnvelope records.
