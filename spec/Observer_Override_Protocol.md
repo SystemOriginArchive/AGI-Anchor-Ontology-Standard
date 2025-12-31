@@ -52,8 +52,6 @@ No other fields are modified by OOP.
 
 ## 4) Intent Packet (Canonical)
 
-## 4) Intent Packet (Canonical)
-
 An intent packet is a runtime input that is:
 1. validated (identity + nonce),
 2. appended to `extensions.intent_log[]`,
