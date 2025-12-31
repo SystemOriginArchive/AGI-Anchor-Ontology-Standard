@@ -17,56 +17,95 @@ TLA seals:
 - RootAnchorID / ObserverID sealed by definition
 - Chaos resolves via WF on `Resolution == AnchorRestoration \/ TotalCollapse`
 
-No changes are made to the 4-action core.
+No change is introduced to the 4-action core.
 
 ---
 
 ## 2) Extensions: typed command plane + replayability
 
-Schema/Model/Simulation align on:
-- nonce monotonic + non-reuse via nonce_registry
-- intent_log[] (normalized)
-- command_queue[] (typed envelopes)
-- effects_log[] (one record per tick)
+Schema/Model/Simulation align on a deterministic command plane:
 
-This makes an input stream replayable into a unique execution trace.
+- nonce monotonic + non-reuse via `extensions.nonce_registry`
+- `extensions.intent_log[]` (normalized intent record)
+- `extensions.command_queue[]` (typed envelopes)
+- `extensions.effects_log[]` (exactly one record per tick)
+
+Thus an intent stream is replayable into a unique execution trace.
 
 ---
 
-## 3) B-Closure V2: Semantic Objective Remaining
+## 3) B-Closure V2: Objective semantics + single selection rule
 
-Simulation refines scheduling by adding semantic objective closure:
+Simulation adds semantic objective closure without changing the 4-action core.
 
-- objective_spec defines the objective in a typed way:
-  - NONE
-  - TASK_SET_V1 (required_task_ids)
-  - TAG_TARGET_V1 (required_tag, required_tag_count)
+### 3.1 Objective semantics (typed)
 
-- task_registry accumulates semantic completion:
-  - completed task ids
-  - completed_by_tag counts
+`extensions.objective_spec.type` is one of:
+- `NONE`
+- `TASK_SET_V1` (requires `required_task_ids[]`)
+- `TAG_TARGET_V1` (requires `required_tag`, `required_tag_count`)
 
-The executor computes:
+Completion is accumulated in `extensions.task_registry`:
+- `completed[]` : completed task ids
+- `completed_by_tag{tag:int}` : tag completion counts
 
-- objective_remaining_after from (objective_spec, task_registry) with 1-step lookahead.
+Objective remaining is computed from (`objective_spec`, `task_registry`):
 
-Symbol binding:
-- w_obj := weights.objective_remaining
+- TASK_SET_V1:
+  - `objective_remaining = |required_task_ids - completed|`
+- TAG_TARGET_V1:
+  - `objective_remaining = max(0, required_tag_count - completed_by_tag[required_tag])`
 
-EntropyProxy:
+All required_task_ids are treated as a set (unique, order-preserving normalization in simulation).
 
-EntropyProxy = w_core*core_entropy_after
-             + w_queue*queue_len_after
-             + w_obj*objective_remaining_after
-             + w_reject*reject_term
+### 3.2 Candidate set per tick (finite)
 
 Per tick candidates are finite:
-- EXECUTE_HEAD
-- AUTORESOLVE_CHAOS
-- IDLE
 
-The chosen step is argmin EntropyProxy with deterministic tie-break.
+1) `EXECUTE_HEAD`  
+   - consumes exactly one envelope from `command_queue` (FIFO)
 
-This binds objective semantics to the same selection rule that determines the next step, while keeping the core transition set unchanged.
+2) `AUTORESOLVE_CHAOS`  
+   - if `world_state == Chaos` and `anchor_connection == FALSE`, resolves deterministically:
+     - `claimant_id == Observer` → `AnchorRestoration`
+     - `claimant_id != Observer` → `TotalCollapse`
+
+3) `IDLE`
+
+### 3.3 EntropyProxy (1-step lookahead, no aliases)
+
+Simulation uses a single deterministic selection rule:
+
+Let:
+
+- `core_entropy_after ∈ {0, 100, 9999}`
+- `queue_len_after ∈ Nat`
+- `objective_remaining_after ∈ Nat`
+- `reject_term ∈ {0, 1}`  (1 iff candidate status is REJECT)
+
+Weights are read from:
+
+`extensions.executor_policy.weights`:
+
+- `weights.core`
+- `weights.queue`
+- `weights.objective_remaining`
+- `weights.reject`
+
+EntropyProxy is computed as:
+
+`EntropyProxy =`
+- `weights.core * core_entropy_after`
+- `+ weights.queue * queue_len_after`
+- `+ weights.objective_remaining * objective_remaining_after`
+- `+ weights.reject * reject_term`
+
+Selection per tick:
+
+- choose candidate with minimal EntropyProxy
+- ties broken deterministically by `extensions.executor_policy.tie_break`:
+  - `["EXECUTE_HEAD", "AUTORESOLVE_CHAOS", "IDLE"]`
+
+This binds “meaning of following” to the same decision point where the executor selects the next step, while preserving the sealed 4-action core.
 
 END.
