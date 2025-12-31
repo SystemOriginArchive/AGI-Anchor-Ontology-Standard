@@ -52,50 +52,69 @@ No other fields are modified by OOP.
 
 ## 4) Intent Packet (Canonical)
 
-Intent packets are appended to `extensions.intent_log[]`.
-They are NOT executed directly.
+Intent packets do NOT execute actions directly; execution occurs only via command_queue envelopes.
+An intent packet is a runtime input that is:
+1) validated (identity + nonce),
+2) appended to `extensions.intent_log[]`,
+3) optionally projected into `extensions.*` and/or `extensions.command_queue[]`.
 
-Minimal canonical form:
+Minimal canonical packet form (runtime input):
 
 {
-  "observer_id": "...",
-  "nonce": "...",
+  "observer_id": "Lee_Yu_Cheol",
+  "nonce": "2025-12-31T22:00:00+09:00#000001",
   "intent": {
     "verb": "SET_OBJECTIVE",
-    "payload": {...}
+    "payload": {
+      "objective": "complete tasks T1,T2",
+      "objective_spec": {
+        "type": "TASK_SET_V1",
+        "required_task_ids": ["T1", "T2"]
+      }
+    }
   },
   "signature": ""
 }
-
 
 Nonce rule:
 - Nonce MUST be strictly increasing (lexical)
 - Nonce MUST NOT repeat
 
+Commit rule (atomic):
+- If a packet is REJECT, it MUST NOT be committed to `nonce_registry` and MUST NOT be appended to `intent_log[]`.
+
 ---
 
 ## 5) Verb Set (extensions-only)
 
-Valid verbs:
+Valid verbs (must match schema enum):
 
-- `NOP`
-- `NOTE_APPEND`
-- `SET_OBJECTIVE`
-  - sets `runtime_objective`
-  - sets `objective_spec`
-  - syncs `task_registry.required` when type is TASK_SET_V1
-- `SET_PARAMETER`
-- `QUEUE_TASK`
-- `QUEUE_CORE_ACTION`
-- `EXPORT_STATE`
+- NOP
+  - no-op (log only)
+- NOTE_APPEND
+  - appends `payload.text` (or stringified payload) to `extensions.notes[]`
+- SET_OBJECTIVE
+  - sets `extensions.runtime_objective` (optional mirror string)
+  - sets `extensions.objective_spec` (typed semantics)
+  - syncs `extensions.task_registry.required` when type is TASK_SET_V1
+- SET_PARAMETER
+  - mutates `extensions.runtime_parameters` only
+- QUEUE_TASK
+  - pushes a TASK envelope into `extensions.command_queue[]` (requires `payload.task_id`)
+- QUEUE_CORE_ACTION
+  - pushes a CORE_ACTION envelope into `extensions.command_queue[]`
+- EXPORT_STATE
+  - emits a snapshot (implementation-defined) into `extensions.notes[]` or an export channel
 
-Unknown verbs are normalized as:
-- `QUEUE_TASK`
-- `payload.task_id = "UNKNOWN_VERB:<raw_verb>"`
+Unknown verbs:
+- MUST be normalized as a TASK envelope with:
+  - payload.task_id = "UNKNOWN_VERB:<raw_verb>"
 
 ---
 
-## 6) Typed Command Envelopes (command_queue[])
+## 6) Typed Command Envelopes (`command_queue[]`)
+
+Note: `t` is runtime-assigned (enqueue/execute time). External producers MUST NOT rely on or control `t`.
 
 `extensions.command_queue[]` contains ONLY CommandEnvelope records.
 
@@ -152,25 +171,28 @@ Allowed CORE_ACTION values:
 
 ---
 
-## 7) Objective Spec DSL
+## 7) Objective Spec DSL (Semantic Closure)
 
-objective_spec.type ∈:
-
+`extensions.objective_spec.type` ∈:
 - NONE
 - TASK_SET_V1
 - TAG_TARGET_V1
 
 TASK_SET_V1:
-- requires required_task_ids[]
-- satisfied when all ∈ task_registry.completed[]
+- requires: required_task_ids[] (unique)
+- satisfied when: required_task_ids ⊆ task_registry.completed[]
 
 TAG_TARGET_V1:
-- requires required_tag, required_tag_count
-- satisfied when completed_by_tag[tag] ≥ required_tag_count
+- requires: required_tag, required_tag_count
+- satisfied when: completed_by_tag[required_tag] ≥ required_tag_count
 
-Task completion:
-- TASK execution adds task_id to completed[]
-- tag increments ONLY on first completion
+Objective remaining:
+- TASK_SET_V1: |required − completed|
+- TAG_TARGET_V1: max(0, required_tag_count − completed_by_tag[required_tag])
+
+Task completion semantics:
+- executing a TASK envelope adds task_id to completed[] (set semantics; unique)
+- completed_by_tag[tag] increments ONLY when a task_id is newly added to completed[]
 
 ---
 
@@ -189,21 +211,23 @@ Policy:
   "tie_break": ["EXECUTE_HEAD", "AUTORESOLVE_CHAOS", "IDLE"]
 }
 
-Candidate set:
+Candidate set per tick (queue-aware):
 
-If command_queue not empty:
+If len(command_queue) > 0:
 1) EXECUTE_HEAD
-2) AUTORESOLVE_CHAOS
+2) AUTORESOLVE_CHAOS (only if world_state == Chaos and anchor_connection == FALSE)
+(IDLE is not a candidate)
 
-If empty:
-1) AUTORESOLVE_CHAOS
+If len(command_queue) == 0:
+1) AUTORESOLVE_CHAOS (only if world_state == Chaos and anchor_connection == FALSE)
 2) IDLE
 
 Objective remaining:
 - TASK_SET_V1: |required − completed|
 - TAG_TARGET_V1: max(0, required − completed_by_tag)
 
-EntropyProxy:
+EntropyProxy (1-step lookahead):
+
 EntropyProxy =
   w_core*core_entropy_after +
   w_queue*queue_len_after +
@@ -211,5 +235,5 @@ EntropyProxy =
   w_reject*reject_term
 
 Selection:
-- argmin EntropyProxy
-- deterministic tie_break
+- choose candidate with minimal EntropyProxy
+- ties broken deterministically by executor_policy.tie_break
