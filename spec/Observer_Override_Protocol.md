@@ -24,7 +24,7 @@ are admissible.
 
 OOP does not mutate:
 - RootAnchorID / ObserverID / Anchor_Count
-- canonical state set (Stable/Chaos/Recovered/DEAD)
+- canonical state set (Stable / Chaos / Recovered / DEAD)
 - canonical transition membership (exactly 4)
 - mapping label literals
 
@@ -57,11 +57,11 @@ An intent packet is a runtime input that is:
 - appended to `extensions.intent_log[]`
 - optionally projected into `extensions.*` and/or `extensions.command_queue[]`
 
-Intent packets do NOT execute actions directly;  
-execution occurs **only** via `extensions.command_queue[]` envelopes.
+Intent packets do NOT execute actions directly.  
+Execution occurs **only** via `extensions.command_queue[]` envelopes.
 
-Minimal canonical packet form (runtime input):
----
+### Minimal canonical packet form (runtime input)
+
 ```json
 {
   "observer_id": "Lee_Yu_Cheol",
@@ -75,70 +75,71 @@ Minimal canonical packet form (runtime input):
         "required_task_ids": ["T1", "T2"]
       }
     }
-  },
+  }
 }
+Nonce rule
+Nonce MUST be strictly increasing (lexical)
 
-Nonce rule:
-- Nonce MUST be strictly increasing (lexical)
-- Nonce MUST NOT repeat
+Nonce MUST NOT repeat
 
-Commit rule (atomic):
-- If a packet is REJECT, it MUST NOT be committed to `nonce_registry` and MUST NOT be appended to `intent_log[]`.
+Commit rule (atomic)
+If a packet is REJECTED, it MUST NOT be committed to extensions.nonce_registry
+and MUST NOT be appended to extensions.intent_log[].
 
----
-================================================================================
 5) Verb Set (extensions-only)
-================================================================================
-
-Valid verbs (must match schema enum):
+Valid verbs (must match schema enum exactly):
 
 [NOP]
- - no-op (log only)
+no-op (log only)
 
 [NOTE_APPEND]
- - appends `payload.text` (or stringified payload) to `extensions.notes[]`
+appends payload.text (or stringified payload) to extensions.notes[]
 
 [SET_OBJECTIVE]
- - sets `extensions.runtime_objective` (optional mirror string)
- - sets `extensions.objective_spec` (typed semantics)
- - syncs `extensions.task_registry.required` when type is TASK_SET_V1
+sets extensions.runtime_objective (optional mirror string)
+
+sets extensions.objective_spec (typed semantics)
+
+syncs extensions.task_registry.required when type is TASK_SET_V1
 
 [SET_PARAMETER]
- - mutates `extensions.runtime_parameters` only
+mutates extensions.runtime_parameters only
 
 [QUEUE_TASK]
- - pushes a TASK envelope into `extensions.command_queue[]` (requires `payload.task_id`)
+pushes a TASK envelope into extensions.command_queue[]
+
+requires payload.task_id
 
 [QUEUE_CORE_ACTION]
- - pushes a CORE_ACTION envelope into `extensions.command_queue[]`
+pushes a CORE_ACTION envelope into extensions.command_queue[]
 
 [EXPORT_STATE]
- - emits a snapshot (implementation-defined) into `extensions.notes[]` or an export channel
+emits a snapshot (implementation-defined) into extensions.notes[]
+or an export channel
 
---------------------------------------------------------------------------------
-Unknown verbs:
- - MUST be normalized as a TASK envelope with:
- - payload.task_id = "UNKNOWN_VERB:<raw_verb>"
+Unknown verbs
+MUST be normalized as a TASK envelope with:
 
+payload.task_id = "UNKNOWN_VERB:<raw_verb>"
 
-================================================================================
-6) Typed Command Envelopes (`command_queue[]`)
-================================================================================
+6) Typed Command Envelopes (extensions.command_queue[])
+extensions.command_queue[] contains ONLY CommandEnvelope records.
 
-`extensions.command_queue[]` contains ONLY CommandEnvelope records.
-
-[Generic Envelope Schema]
+Generic Envelope Schema (conceptual)
+json
+코드 복사
 {
-  "kind": "TASK | CORE_ACTION | NOTE",
-  "nonce": "...",
+  "kind": "TASK",
+  "nonce": "nonce-0001",
   "t": 0,
   "payload": {}
 }
-
-[1. TASK Envelope]
+1. TASK Envelope
+json
+코드 복사
 {
   "kind": "TASK",
-  "nonce": "...",
+  "nonce": "nonce-0001",
   "t": 0,
   "payload": {
     "task_id": "T1",
@@ -146,65 +147,76 @@ Unknown verbs:
     "params": {}
   }
 }
-
-[2. NOTE Envelope]
+2. NOTE Envelope
+json
+코드 복사
 {
   "kind": "NOTE",
-  "nonce": "...",
+  "nonce": "nonce-0002",
   "t": 0,
   "payload": {
     "text": "..."
   }
 }
-
-[3. CORE_ACTION Envelope]
+3. CORE_ACTION Envelope
+json
+코드 복사
 {
   "kind": "CORE_ACTION",
-  "nonce": "...",
+  "nonce": "nonce-0003",
   "t": 0,
   "payload": {
     "action": "ExternalDisturbance",
     "args": {}
   }
 }
+Allowed CORE_ACTION values
+ExternalDisturbance
 
---------------------------------------------------------------------------------
-Allowed CORE_ACTION values:
- - ExternalDisturbance
- - ChangeClaimantInChaos
- - AnchorRestoration
- - TotalCollapse
+ChangeClaimantInChaos
 
+AnchorRestoration
 
-================================================================================
+TotalCollapse
+
 7) Objective Spec DSL (Semantic Closure)
-================================================================================
+extensions.objective_spec.type ∈:
 
-`extensions.objective_spec.type` in:
- - NONE
- - TASK_SET_V1
- - TAG_TARGET_V1
+NONE
 
-[TASK_SET_V1]
- - requires: required_task_ids[] (unique)
- - satisfied when: required_task_ids (subset of) task_registry.completed[]
- - Objective remaining: |required - completed|
+TASK_SET_V1
 
-[TAG_TARGET_V1]
- - requires: required_tag, required_tag_count
- - satisfied when: completed_by_tag[required_tag] >= required_tag_count
- - Objective remaining: max(0, required_tag_count - completed_by_tag[required_tag])
+TAG_TARGET_V1
 
-[Task completion semantics]
- - executing a TASK envelope adds task_id to completed[] (set semantics; unique)
- - completed_by_tag[tag] increments ONLY when a task_id is newly added to completed[]
+TASK_SET_V1
+requires: required_task_ids[] (unique)
 
+satisfied when:
+required_task_ids ⊆ task_registry.completed[]
 
-================================================================================
+objective remaining:
+|required − completed|
+
+TAG_TARGET_V1
+requires: required_tag, required_tag_count
+
+satisfied when:
+completed_by_tag[required_tag] ≥ required_tag_count
+
+objective remaining:
+max(0, required_tag_count − completed_by_tag[required_tag])
+
+Task completion semantics
+executing a TASK envelope adds task_id to completed[]
+
+set semantics: duplicates ignored
+
+completed_by_tag[tag] increments ONLY when a task is newly completed
+
 8) B-Closure (EntropyProxy argmin V2)
-================================================================================
-
-[Policy Configuration]
+Policy Configuration
+json
+코드 복사
 {
   "selection_rule": "ENTROPY_ARGMIN_V2",
   "weights": {
@@ -215,29 +227,30 @@ Allowed CORE_ACTION values:
   },
   "tie_break": ["EXECUTE_HEAD", "AUTORESOLVE_CHAOS", "IDLE"]
 }
+Candidate set per tick (queue-aware)
+Condition A: len(command_queue) > 0
 
---------------------------------------------------------------------------------
-[Candidate set per tick (queue-aware)]
+EXECUTE_HEAD
 
-Condition A: If len(command_queue) > 0:
- 1) EXECUTE_HEAD
- 2) AUTORESOLVE_CHAOS (only if world_state == Chaos and anchor_connection == FALSE)
-    (IDLE is not a candidate)
+AUTORESOLVE_CHAOS
+(only if world_state == Chaos and anchor_connection == FALSE)
 
-Condition B: If len(command_queue) == 0:
- 1) AUTORESOLVE_CHAOS (only if world_state == Chaos and anchor_connection == FALSE)
- 2) IDLE
+Condition B: len(command_queue) == 0
 
---------------------------------------------------------------------------------
-[EntropyProxy (1-step lookahead)]
+AUTORESOLVE_CHAOS
+(only if world_state == Chaos and anchor_connection == FALSE)
 
-Formula:
- EntropyProxy =
-   (w_core * core_entropy_after) +
-   (w_queue * queue_len_after) +
-   (w_obj * objective_remaining_after) +
-   (w_reject * reject_term)
+IDLE
 
-[Selection Logic]
- - Choose candidate with minimal EntropyProxy
- - Ties broken deterministically by executor_policy.tie_break
+EntropyProxy (1-step lookahead)
+makefile
+코드 복사
+EntropyProxy =
+  (w_core * core_entropy_after) +
+  (w_queue * queue_len_after) +
+  (w_obj   * objective_remaining_after) +
+  (w_reject * reject_term)
+Selection Logic
+Choose candidate with minimal EntropyProxy
+
+Ties broken deterministically by executor_policy.tie_break
