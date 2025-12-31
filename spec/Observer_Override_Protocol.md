@@ -52,17 +52,19 @@ No other fields are modified by OOP.
 
 ## 4) Intent Packet (Canonical)
 
-Intent packets do NOT execute actions directly; execution occurs only via command_queue envelopes.
 An intent packet is a runtime input that is:
 1) validated (identity + nonce),
 2) appended to `extensions.intent_log[]`,
 3) optionally projected into `extensions.*` and/or `extensions.command_queue[]`.
 
+Intent packets do NOT execute actions directly; execution occurs only via `command_queue` envelopes.
+
 Minimal canonical packet form (runtime input):
 
+```json
 {
   "observer_id": "Lee_Yu_Cheol",
-  "nonce": "2025-12-31T22:00:00+09:00#000001",
+  "nonce": "nonce-0001",
   "intent": {
     "verb": "SET_OBJECTIVE",
     "payload": {
@@ -75,7 +77,6 @@ Minimal canonical packet form (runtime input):
   },
   "signature": ""
 }
-
 Nonce rule:
 - Nonce MUST be strictly increasing (lexical)
 - Nonce MUST NOT repeat
@@ -124,11 +125,8 @@ Envelope shape:
   "kind": "TASK | CORE_ACTION | NOTE",
   "nonce": "...",
   "t": 0,
-  "payload": { ... }
+  "payload": { }
 }
-
-TASK (minimal):
-
 {
   "kind": "TASK",
   "nonce": "...",
@@ -139,9 +137,6 @@ TASK (minimal):
     "params": {}
   }
 }
-
-NOTE (minimal):
-
 {
   "kind": "NOTE",
   "nonce": "...",
@@ -150,8 +145,6 @@ NOTE (minimal):
     "text": "..."
   }
 }
-
-CORE_ACTION (minimal):
 
 {
   "kind": "CORE_ACTION",
@@ -162,6 +155,7 @@ CORE_ACTION (minimal):
     "args": {}
   }
 }
+
 
 Allowed CORE_ACTION values:
 - ExternalDisturbance
