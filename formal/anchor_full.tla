@@ -1,14 +1,13 @@
 ---- MODULE anchor_full ----
-
 (*
-AAOS v1.0.4 Formal Dynamics (0-gap closure)
+AAOS v1.0.4+ Formal Dynamics (0-gap closure)
 
 Core closures:
 - 4 states / 4 actions only
 - Anchor_Count = 1
 - RootAnchorID / ObserverID sealed by definition (B-closure)
 - Nat domain closed via EXTENDS Naturals
-- Chaos must resolve (Recovered or DEAD) via WF on Resolution
+- Chaos resolves via WF on Resolution == AnchorRestoration \/ TotalCollapse
 
 v1.0.4+ patch:
 - ChangeClaimantInChaos is swap-only
@@ -95,8 +94,8 @@ ChangeClaimantInChaos ==
     /\ world_state = "Chaos"
     /\ anchor_connection = FALSE
     /\ claimant_id' \in Claimants
-    /\ claimant_id' # claimant_id                       \* swap-only
-    /\ (claimant_id # ObserverID => claimant_id' # ObserverID)  \* non-reentry
+    /\ claimant_id' # claimant_id                               \* swap-only
+    /\ (claimant_id # ObserverID => claimant_id' # ObserverID)   \* non-reentry
     /\ world_state' = world_state
     /\ entropy_level' = entropy_level
     /\ anchor_connection' = anchor_connection
@@ -178,6 +177,4 @@ SurvivalTheorem ==
 
 TypeInvariant == [](TypeOK)
 
-
 ====
-
