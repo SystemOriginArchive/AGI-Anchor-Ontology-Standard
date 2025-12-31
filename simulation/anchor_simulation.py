@@ -25,6 +25,11 @@ v1.0.4+ semantic closure:
 - task_registry.completed is treated as set (uniqueItems)
 - completed_by_tag increments ONLY when a task_id is newly completed
   (keeps TAG_TARGET_V1 semantics consistent with schema uniqueness)
+
+v1.0.4+ schema closure:
+- QUEUE_TASK requires task_id (schema + OOP consistent)
+- NOTE envelope requires payload.text (schema consistent)
+- uniqueItems constraints enforced in _type_ok()
 """
 
 from __future__ import annotations
@@ -307,6 +312,45 @@ class AnchorSystem:
         if not isinstance(tb, list) or len(tb) != 3:
             return False
 
+        # ---- schema uniqueItems closures ----
+        # nonce_registry.seen: unique strings
+        seen_list = nr.get("seen", [])
+        if not isinstance(seen_list, list):
+            return False
+        if any(not isinstance(x, str) for x in seen_list):
+            return False
+        if len(seen_list) != len(set(seen_list)):
+            return False
+
+        # task_registry.required/completed: unique strings
+        req_list = tr.get("required", [])
+        comp_list = tr.get("completed", [])
+        if not isinstance(req_list, list) or not isinstance(comp_list, list):
+            return False
+        if any(not isinstance(x, str) for x in req_list):
+            return False
+        if any(not isinstance(x, str) for x in comp_list):
+            return False
+        if len(req_list) != len(set(req_list)):
+            return False
+        if len(comp_list) != len(set(comp_list)):
+            return False
+
+        # objective_spec.required_task_ids: unique strings (when present)
+        if isinstance(os_, dict) and isinstance(os_.get("required_task_ids", []), list):
+            rti = os_.get("required_task_ids", [])
+            if any(not isinstance(x, str) for x in rti):
+                return False
+            if len(rti) != len(set(rti)):
+                return False
+
+        # executor_policy.tie_break: unique + allowed values
+        allowed_tb = {"EXECUTE_HEAD", "AUTORESOLVE_CHAOS", "IDLE"}
+        if any(str(x) not in allowed_tb for x in tb):
+            return False
+        if len(tb) != len(set(tb)):
+            return False
+
         return True
 
     # ---------------- objective semantics ----------------
@@ -338,7 +382,8 @@ class AnchorSystem:
     def _sync_registry_from_objective(self) -> None:
         """
         Canonical linkage:
-        - If objective_spec is TASK_SET_V1, copy required_task_ids into task_registry.required (unique, order-preserving).
+        - TASK_SET_V1: task_registry.required = unique(required_task_ids) (order-preserving)
+        - else: task_registry.required = []
         """
         ext = self.extensions
         os_ = ext.get("objective_spec", {})
@@ -346,24 +391,28 @@ class AnchorSystem:
         if not isinstance(os_, dict) or not isinstance(tr, dict):
             return
 
-        if str(os_.get("type", "NONE")) == "TASK_SET_V1":
+        otype = str(os_.get("type", "NONE"))
+        if otype == "TASK_SET_V1":
             req = os_.get("required_task_ids", [])
-            if isinstance(req, list):
-                tr["required"] = _uniq_preserve_order(req)
-            else:
-                tr["required"] = []
+            tr["required"] = _uniq_preserve_order(req) if isinstance(req, list) else []
+        else:
+            tr["required"] = []
 
     def _current_completed_sets(self) -> Tuple[Set[str], Dict[str, int]]:
         tr = self.extensions.get("task_registry", {})
         completed_list = tr.get("completed", []) if isinstance(tr, dict) else []
-        completed = {str(x) for x in completed_list} if isinstance(completed_list, list) else set()
+        if isinstance(completed_list, list):
+            completed_list = _uniq_preserve_order(completed_list)
+        else:
+            completed_list = []
+        completed = set(completed_list)
 
         cbt = tr.get("completed_by_tag", {}) if isinstance(tr, dict) else {}
         completed_by_tag: Dict[str, int] = {}
         if isinstance(cbt, dict):
             for k, v in cbt.items():
                 try:
-                    completed_by_tag[str(k)] = int(v)
+                    completed_by_tag[str(k)] = max(0, int(v))
                 except Exception:
                     completed_by_tag[str(k)] = 0
         return completed, completed_by_tag
@@ -480,7 +529,7 @@ class AnchorSystem:
                 ext["runtime_parameters"].update(payload)
 
         elif verb == "QUEUE_TASK":
-            # TASK payload MUST include task_id; if missing, deterministically derive from nonce
+            # TASK payload MUST include task_id (schema-consistent)
             task_id = str(payload.get("task_id", ""))
             tag = str(payload.get("tag", ""))
             params = payload.get("params", {})
@@ -488,7 +537,7 @@ class AnchorSystem:
                 params = {"value": params}
 
             if task_id == "":
-                task_id = f"task_from_nonce:{nonce}"
+                return "REJECT"
 
             env = {
                 "kind": "TASK",
@@ -756,8 +805,20 @@ class AnchorSystem:
         os_ = self.extensions.get("objective_spec", {})
         osd = os_ if isinstance(os_, dict) else {}
 
-        # NOTE
+        # NOTE (schema: payload.text required)
         if kind == "NOTE":
+            if not isinstance(payload, dict) or "text" not in payload or not isinstance(payload.get("text"), str):
+                obj_rem = self._objective_remaining(osd, completed, cbt)
+                return {
+                    "type": "EXECUTE_HEAD",
+                    "kind": "NOTE",
+                    "status": "REJECT",
+                    "core_entropy_after": _core_entropy_for_state(self.world_state),
+                    "queue_len_after": queue_len_after,
+                    "objective_remaining_after": obj_rem,
+                    "detail": {"reason": "note_requires_text"},
+                }
+
             obj_rem = self._objective_remaining(osd, completed, cbt)
             return {
                 "type": "EXECUTE_HEAD",
@@ -1044,10 +1105,14 @@ class AnchorSystem:
             }
 
             if kind == "NOTE":
-                text = str(payload.get("text", "")) if isinstance(payload, dict) else ""
-                ext["notes"].append(text)
-                eff["status"] = "OK"
-                eff["detail"].update({"text": text})
+                if not isinstance(payload, dict) or "text" not in payload or not isinstance(payload.get("text"), str):
+                    eff["status"] = "REJECT"
+                    eff["detail"].update({"reason": "note_requires_text"})
+                else:
+                    text = payload.get("text", "")
+                    ext["notes"].append(text)
+                    eff["status"] = "OK"
+                    eff["detail"].update({"text": text})
 
             elif kind == "TASK":
                 if not isinstance(payload, dict):
@@ -1061,9 +1126,10 @@ class AnchorSystem:
                         eff["detail"].update({"reason": "missing_task_id"})
                     else:
                         tr = ext["task_registry"]
-                        comp = list(tr.get("completed", []))
+                        comp_raw = list(tr.get("completed", []))
+                        comp = _uniq_preserve_order(comp_raw)  # normalize to unique strings
 
-                        newly_added = (task_id not in comp)
+                        newly_added = (task_id not in set(comp))
                         if newly_added:
                             comp.append(task_id)
                         tr["completed"] = comp
@@ -1071,7 +1137,7 @@ class AnchorSystem:
                         # schema-consistent tag counting (unique completion only)
                         if tag != "" and newly_added:
                             cbt = dict(tr.get("completed_by_tag", {}))
-                            cbt[tag] = int(cbt.get(tag, 0)) + 1
+                            cbt[tag] = max(0, int(cbt.get(tag, 0))) + 1
                             tr["completed_by_tag"] = cbt
 
                         eff["status"] = "OK"
