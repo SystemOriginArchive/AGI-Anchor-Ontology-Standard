@@ -20,6 +20,10 @@ v1.0.4+ runtime fixes (simulation-only):
 - intent_log.verb is schema-safe (enum only); raw verb preserved in payload["_raw_verb"] when needed
 - tick counter is extensions.runtime_parameters["tick"] (monotone), independent from core time_cycle
 - queue present => IDLE is not a candidate (prevents queue stall appearance)
+
+v1.0.4+ semantic fix:
+- task_registry.completed is uniqueItems => completed_by_tag increments ONLY when a task_id is newly completed
+  (keeps TAG_TARGET_V1 semantics consistent with schema uniqueness)
 """
 
 from __future__ import annotations
@@ -794,10 +798,11 @@ class AnchorSystem:
                 }
 
             completed2 = set(completed)
+            newly_added = (task_id not in completed2)
             completed2.add(task_id)
 
             cbt2 = dict(cbt)
-            if tag != "":
+            if tag != "" and newly_added:
                 cbt2[tag] = int(cbt2.get(tag, 0)) + 1
 
             obj_rem2 = self._objective_remaining(osd, completed2, cbt2)
@@ -809,7 +814,7 @@ class AnchorSystem:
                 "core_entropy_after": _core_entropy_for_state(self.world_state),
                 "queue_len_after": queue_len_after,
                 "objective_remaining_after": obj_rem2,
-                "detail": {"task_id": task_id, "tag": tag},
+                "detail": {"task_id": task_id, "tag": tag, "newly_completed": newly_added},
             }
 
         # CORE_ACTION
@@ -1055,17 +1060,26 @@ class AnchorSystem:
                     else:
                         tr = ext["task_registry"]
                         comp = list(tr.get("completed", []))
-                        if task_id not in comp:
+
+                        newly_added = (task_id not in comp)
+                        if newly_added:
                             comp.append(task_id)
                         tr["completed"] = comp
 
-                        if tag != "":
+                        if tag != "" and newly_added:
                             cbt = dict(tr.get("completed_by_tag", {}))
                             cbt[tag] = int(cbt.get(tag, 0)) + 1
                             tr["completed_by_tag"] = cbt
 
                         eff["status"] = "OK"
-                        eff["detail"].update({"task_id": task_id, "tag": tag, "objective_remaining": self.objective_remaining()})
+                        eff["detail"].update(
+                            {
+                                "task_id": task_id,
+                                "tag": tag,
+                                "newly_completed": newly_added,
+                                "objective_remaining": self.objective_remaining(),
+                            }
+                        )
 
             elif kind == "CORE_ACTION":
                 if not isinstance(payload, dict):
