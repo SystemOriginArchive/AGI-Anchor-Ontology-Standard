@@ -169,6 +169,16 @@ Candidate set per tick:
 1) EXECUTE_HEAD (consume one envelope FIFO)
 2) AUTORESOLVE_CHAOS (if Chaos/disconnected, resolve via Restoration/Collapse)
 3) IDLE
+### Candidate set is queue-aware (v1.0.4+)
+
+If len(command_queue) > 0:
+1) EXECUTE_HEAD (consume exactly one envelope FIFO)
+2) AUTORESOLVE_CHAOS (only if Chaos/disconnected)
+(IDLE is not a candidate when queue is non-empty.)
+
+If len(command_queue) == 0:
+1) AUTORESOLVE_CHAOS (only if Chaos/disconnected)
+2) IDLE
 
 Objective remaining:
 - `objective_remaining = remaining count` derived from `objective_spec` and `task_registry`:
