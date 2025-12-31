@@ -127,8 +127,7 @@ Unknown verbs:
   "nonce": "...",
   "t": 0,
   "payload": {}
-}
-{
+}{
   "kind": "TASK",
   "nonce": "...",
   "t": 0,
@@ -137,16 +136,14 @@ Unknown verbs:
     "tag": "",
     "params": {}
   }
-}
-{
+}{
   "kind": "NOTE",
   "nonce": "...",
   "t": 0,
   "payload": {
     "text": "..."
   }
-}
-{
+}{
   "kind": "CORE_ACTION",
   "nonce": "...",
   "t": 0,
