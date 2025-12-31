@@ -37,19 +37,28 @@ This makes an input stream replayable into a unique execution trace.
 
 Simulation refines scheduling by adding semantic objective closure:
 
-- `objective_spec` defines the objective in a typed way:
+- objective_spec defines the objective in a typed way:
   - NONE
   - TASK_SET_V1 (required_task_ids)
   - TAG_TARGET_V1 (required_tag, required_tag_count)
 
-- `task_registry` accumulates semantic completion:
+- task_registry accumulates semantic completion:
   - completed task ids
   - completed_by_tag counts
 
 The executor computes:
 
-- `objective_remaining_after` from (objective_spec, task_registry) with 1-step lookahead.
-- `EntropyProxy = w_core*core_entropy_after + w_queue*queue_len_after + w_obj*objective_remaining_after + w_reject*reject_term`
+- objective_remaining_after from (objective_spec, task_registry) with 1-step lookahead.
+
+Symbol binding:
+- w_obj := weights.objective_remaining
+
+EntropyProxy:
+
+EntropyProxy = w_core*core_entropy_after
+             + w_queue*queue_len_after
+             + w_obj*objective_remaining_after
+             + w_reject*reject_term
 
 Per tick candidates are finite:
 - EXECUTE_HEAD
