@@ -117,14 +117,12 @@ Unknown verbs:
 
 ---
 
+```md
 ## 6) Typed Command Envelopes (`command_queue[]`)
-
-Note: `t` is runtime-assigned (enqueue/execute time).
-External producers MUST NOT rely on or control `t`.
 
 `extensions.command_queue[]` contains ONLY CommandEnvelope records.
 
-### Envelope shape (generic)
+### Generic envelope
 
 ```json
 {
@@ -151,7 +149,15 @@ External producers MUST NOT rely on or control `t`.
     "text": "..."
   }
 }
-
+{
+  "kind": "CORE_ACTION",
+  "nonce": "...",
+  "t": 0,
+  "payload": {
+    "action": "ExternalDisturbance",
+    "args": {}
+  }
+}
 
 
 Allowed CORE_ACTION values:
