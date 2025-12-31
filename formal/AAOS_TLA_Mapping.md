@@ -3,7 +3,7 @@
 This document fixes a 1:1 mapping between:
 - spec/AAOS_Spec.md
 - spec/AAOS_Schema.json
-- Formal_Model.json
+- spec/Formal_Model.json
 - formal/anchor_full.tla
 - simulation/anchor_simulation.py
 
