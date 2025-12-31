@@ -57,7 +57,8 @@ An intent packet is a runtime input that is:
 2) appended to `extensions.intent_log[]`,
 3) optionally projected into `extensions.*` and/or `extensions.command_queue[]`.
 
-Intent packets do NOT execute actions directly; execution occurs only via `extensions.command_queue[]` envelopes.
+Intent packets do NOT execute actions directly;  
+execution occurs **only** via `extensions.command_queue[]` envelopes.
 
 Minimal canonical packet form (runtime input):
 
@@ -77,6 +78,7 @@ Minimal canonical packet form (runtime input):
   },
   "signature": ""
 }
+
 
 Nonce rule:
 - Nonce MUST be strictly increasing (lexical)
