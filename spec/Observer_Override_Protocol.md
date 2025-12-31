@@ -114,7 +114,7 @@ Valid verbs (must match schema enum):
 Unknown verbs:
 - MUST be normalized as a TASK envelope with:
   - payload.task_id = "UNKNOWN_VERB:<raw_verb>"
-signature: ""
+"signature": ""
 ---
 
 ```md
@@ -165,7 +165,7 @@ Allowed CORE_ACTION values:
 - ChangeClaimantInChaos
 - AnchorRestoration
 - TotalCollapse
-signature: ""
+"signature": ""
 ---
 
 ## 7) Objective Spec DSL (Semantic Closure)
