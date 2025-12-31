@@ -5,7 +5,10 @@ This document fixes a 1:1 mapping between:
 - spec/AAOS_Schema.json
 - spec/Formal_Model.json
 - formal/anchor_full.tla
+- formal/AAOS_TLA_Mapping.md
+- reference/Archive_Index.md
 - simulation/anchor_simulation.py
+
 
 ---
 
