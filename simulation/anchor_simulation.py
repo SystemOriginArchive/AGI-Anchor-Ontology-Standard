@@ -302,7 +302,18 @@ class AnchorSystem:
 
                 if otype == "TASK_SET_V1":
                     req = spec.get("required_task_ids", [])
-                    os["required_task_ids"] = [str(x) for x in req] if isinstance(req, list) else []
+                    # normalize: order-preserving unique strings (Schema uniqueItems: true)
+                    if isinstance(req, list):
+                        seen_req = set()
+                        uniq_req = []
+                        for x in req:
+                            sx = str(x)
+                            if sx not in seen_req:
+                                uniq_req.append(sx)
+                                seen_req.add(sx)
+                        os["required_task_ids"] = uniq_req
+                    else:
+                        os["required_task_ids"] = []
                     os["required_tag"] = ""
                     os["required_tag_count"] = 0
 
