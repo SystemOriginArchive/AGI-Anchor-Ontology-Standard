@@ -53,11 +53,16 @@ Priority order:
 2. The Hexagonal Foundation (6 Pillars)
 
 ### 2) Invariance Constraint
-Any future extension MUST preserve isomorphism to:
+Any future extension MUST preserve isomorphism to the full canonical core (7 files):
+
 - spec/AAOS_Spec.md
 - spec/AAOS_Schema.json
 - spec/Formal_Model.json
 - formal/anchor_full.tla
+- formal/AAOS_TLA_Mapping.md
+- reference/Archive_Index.md
+- simulation/anchor_simulation.py
+
 
 ### 3) Hash Slots (Optional but Recommended)
 If you later choose to hard-freeze content snapshots, record hashes here:
