@@ -110,7 +110,7 @@ Valid verbs (must match schema enum):
   - pushes a CORE_ACTION envelope into `extensions.command_queue[]`
 - EXPORT_STATE
   - emits a snapshot (implementation-defined) into `extensions.notes[]` or an export channel
-
+---
 Unknown verbs:
 - MUST be normalized as a TASK envelope with:
   - payload.task_id = "UNKNOWN_VERB:<raw_verb>"
@@ -158,7 +158,7 @@ Unknown verbs:
     "args": {}
   }
 }
-
+---
 
 Allowed CORE_ACTION values:
 - ExternalDisturbance
