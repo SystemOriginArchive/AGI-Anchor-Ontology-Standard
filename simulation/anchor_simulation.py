@@ -10,11 +10,22 @@ Extensions (B-closure, semantics-complete):
 - task_registry (required/completed + tag counts)
 - EntropyProxy includes objective_remaining computed from objective_spec + task_registry
 - tick() selects argmin of EntropyProxy with deterministic tie-break
+
+Key sealing:
+- EntropyProxy uses executor_policy.weights keys ONLY:
+  - core, queue, objective_remaining, reject
+(no aliases)
 """
 
 from __future__ import annotations
+
+from dataclasses import dataclass
+from decimal import Decimal, getcontext
 from typing import Any, Dict, FrozenSet, Iterable, List, Optional, Set, Tuple
 
+
+# deterministic Decimal arithmetic context
+getcontext().prec = 28
 
 OWNER = "Lee_Yu_Cheol"
 ROOT_ANCHOR_ID = "GENESIS_HEXAGON_V1"
@@ -27,12 +38,47 @@ CORE_ACTIONS = {
 }
 
 
-def _core_entropy_for_state(world_state: str) -> float:
+def _core_entropy_for_state(world_state: str) -> int:
     if world_state in {"Stable", "Recovered"}:
-        return 0.0
+        return 0
     if world_state == "Chaos":
-        return 100.0
-    return 9999.0
+        return 100
+    return 9999
+
+
+def _d(x: Any) -> Decimal:
+    """Deterministic Decimal conversion."""
+    if isinstance(x, Decimal):
+        return x
+    if isinstance(x, bool):
+        return Decimal(1) if x else Decimal(0)
+    if isinstance(x, int):
+        return Decimal(x)
+    if isinstance(x, float):
+        # str(float) is deterministic for a given float
+        return Decimal(str(x))
+    return Decimal(str(x))
+
+
+def _uniq_preserve_order(items: Iterable[Any]) -> List[str]:
+    seen: Set[str] = set()
+    out: List[str] = []
+    for x in items:
+        sx = str(x)
+        if sx not in seen:
+            out.append(sx)
+            seen.add(sx)
+    return out
+
+
+@dataclass(frozen=True)
+class CoreSimResult:
+    world_state: str
+    anchor_connection: bool
+    entropy: int
+    claimant_id: str
+    is_dead: bool
+    result: str  # OK / NOOP / REJECT / RECOVERED / DEAD / STATE=DEAD
 
 
 class AnchorSystem:
@@ -67,7 +113,7 @@ class AnchorSystem:
         # core state variables
         self.world_state = "Stable"    # Stable / Chaos / Recovered / DEAD
         self.anchor_connection = True  # True / False
-        self.entropy = 0.0             # 0.0 / 100.0 / 9999.0 (mirrors world_state)
+        self.entropy = 0               # 0 / 100 / 9999 (mirrors world_state)
         self.time_cycle = 0            # Nat
         self.claimant_id = self.owner
         self.is_dead = False
@@ -118,6 +164,7 @@ class AnchorSystem:
         if self.anchor_connection not in {True, False}:
             return False
 
+        # coupling: state <-> connection
         if self.world_state in {"Stable", "Recovered"} and self.anchor_connection is not True:
             return False
         if self.world_state in {"Chaos", "DEAD"} and self.anchor_connection is not False:
@@ -130,13 +177,14 @@ class AnchorSystem:
             return False
 
         # coupling: state <-> entropy
-        if self.world_state in {"Stable", "Recovered"} and self.entropy != 0.0:
+        if self.world_state in {"Stable", "Recovered"} and self.entropy != 0:
             return False
-        if self.world_state == "Chaos" and self.entropy != 100.0:
+        if self.world_state == "Chaos" and self.entropy != 100:
             return False
-        if self.world_state == "DEAD" and self.entropy != 9999.0:
+        if self.world_state == "DEAD" and self.entropy != 9999:
             return False
 
+        # recovered claimant invariant
         if self.world_state == "Recovered" and self.claimant_id != self.owner:
             return False
 
@@ -168,8 +216,8 @@ class AnchorSystem:
         if not isinstance(tr, dict) or "required" not in tr or "completed" not in tr or "completed_by_tag" not in tr:
             return False
 
-        os = ext["objective_spec"]
-        if not isinstance(os, dict) or "type" not in os:
+        os_ = ext["objective_spec"]
+        if not isinstance(os_, dict) or "type" not in os_:
             return False
 
         ep = ext["executor_policy"]
@@ -187,7 +235,8 @@ class AnchorSystem:
 
         if otype == "TASK_SET_V1":
             req = objective_spec.get("required_task_ids", [])
-            req_set = {str(x) for x in req} if isinstance(req, list) else set()
+            req_list = req if isinstance(req, list) else []
+            req_set = {str(x) for x in req_list}
             return max(0, len(req_set - completed))
 
         if otype == "TAG_TARGET_V1":
@@ -201,27 +250,35 @@ class AnchorSystem:
     def _sync_registry_from_objective(self) -> None:
         """
         Canonical linkage:
-        - If objective_spec is TASK_SET_V1, copy required_task_ids into task_registry.required (set-like, unique).
-        - If objective_spec is TAG_TARGET_V1, task_registry.required may be empty; completion is counted by tag.
+        - If objective_spec is TASK_SET_V1, copy required_task_ids into task_registry.required (unique, order-preserving).
         """
         ext = self.extensions
-        os = ext.get("objective_spec", {})
+        os_ = ext.get("objective_spec", {})
         tr = ext.get("task_registry", {})
-        if not isinstance(os, dict) or not isinstance(tr, dict):
+        if not isinstance(os_, dict) or not isinstance(tr, dict):
             return
 
-        otype = str(os.get("type", "NONE"))
-        if otype == "TASK_SET_V1":
-            req = os.get("required_task_ids", [])
+        if str(os_.get("type", "NONE")) == "TASK_SET_V1":
+            req = os_.get("required_task_ids", [])
             if isinstance(req, list):
-                uniq = []
-                seen = set()
-                for x in req:
-                    sx = str(x)
-                    if sx not in seen:
-                        uniq.append(sx)
-                        seen.add(sx)
-                tr["required"] = uniq
+                tr["required"] = _uniq_preserve_order(req)
+            else:
+                tr["required"] = []
+
+    def _current_completed_sets(self) -> Tuple[Set[str], Dict[str, int]]:
+        tr = self.extensions.get("task_registry", {})
+        completed_list = tr.get("completed", []) if isinstance(tr, dict) else []
+        completed = {str(x) for x in completed_list} if isinstance(completed_list, list) else set()
+
+        cbt = tr.get("completed_by_tag", {}) if isinstance(tr, dict) else {}
+        completed_by_tag: Dict[str, int] = {}
+        if isinstance(cbt, dict):
+            for k, v in cbt.items():
+                try:
+                    completed_by_tag[str(k)] = int(v)
+                except Exception:
+                    completed_by_tag[str(k)] = 0
+        return completed, completed_by_tag
 
     # ---------------- OOP: intent packets -> deterministic logs + queue ----------------
     def apply_intent_packet(self, packet: Dict[str, Any]) -> str:
@@ -269,6 +326,7 @@ class AnchorSystem:
             "t": self.time_cycle,
         }
 
+        # commit nonce registry + log first (replayable)
         seen.append(nonce)
         nr["seen"] = seen
         nr["last_nonce"] = nonce
@@ -286,48 +344,34 @@ class AnchorSystem:
             ext["notes"].append(str(text))
 
         elif verb == "SET_OBJECTIVE":
-            # human-readable objective (optional)
+            # human-readable objective mirror (optional)
             if "objective" in payload:
                 ext["runtime_objective"] = str(payload.get("objective", ""))
 
             # semantic objective_spec (primary)
-            # expected payload shapes:
-            #  - {"objective_spec": {...}}
-            #  - {"spec": {...}}
             spec = payload.get("objective_spec", payload.get("spec", None))
             if isinstance(spec, dict) and "type" in spec:
-                # shallow normalize
                 otype = str(spec.get("type", "NONE"))
-                os = {"type": otype}
+                os2: Dict[str, Any] = {"type": otype}
 
                 if otype == "TASK_SET_V1":
                     req = spec.get("required_task_ids", [])
-                    # normalize: order-preserving unique strings (Schema uniqueItems: true)
-                    if isinstance(req, list):
-                        seen_req = set()
-                        uniq_req = []
-                        for x in req:
-                            sx = str(x)
-                            if sx not in seen_req:
-                                uniq_req.append(sx)
-                                seen_req.add(sx)
-                        os["required_task_ids"] = uniq_req
-                    else:
-                        os["required_task_ids"] = []
-                    os["required_tag"] = ""
-                    os["required_tag_count"] = 0
+                    req_list = req if isinstance(req, list) else []
+                    os2["required_task_ids"] = _uniq_preserve_order(req_list)
+                    os2["required_tag"] = ""
+                    os2["required_tag_count"] = 0
 
                 elif otype == "TAG_TARGET_V1":
-                    os["required_task_ids"] = []
-                    os["required_tag"] = str(spec.get("required_tag", ""))
-                    os["required_tag_count"] = int(spec.get("required_tag_count", 0))
+                    os2["required_task_ids"] = []
+                    os2["required_tag"] = str(spec.get("required_tag", ""))
+                    os2["required_tag_count"] = int(spec.get("required_tag_count", 0))
 
                 else:
-                    os["required_task_ids"] = []
-                    os["required_tag"] = ""
-                    os["required_tag_count"] = 0
+                    os2["required_task_ids"] = []
+                    os2["required_tag"] = ""
+                    os2["required_tag_count"] = 0
 
-                ext["objective_spec"] = os
+                ext["objective_spec"] = os2
                 self._sync_registry_from_objective()
 
         elif verb == "SET_PARAMETER":
@@ -340,7 +384,7 @@ class AnchorSystem:
                 ext["runtime_parameters"].update(payload)
 
         elif verb == "QUEUE_TASK":
-            # TASK payload MUST include task_id
+            # TASK payload MUST include task_id; if missing, deterministically derive from nonce
             task_id = str(payload.get("task_id", ""))
             tag = str(payload.get("tag", ""))
             params = payload.get("params", {})
@@ -348,25 +392,23 @@ class AnchorSystem:
                 params = {"value": params}
 
             if task_id == "":
-                # deterministic: store as TASK with generated id from nonce
                 task_id = f"task_from_nonce:{nonce}"
 
             env = {"kind": "TASK", "nonce": nonce, "t": self.time_cycle, "payload": {"task_id": task_id, "tag": tag, "params": params}}
             ext["command_queue"].append(env)
 
-            # optional: if objective is TASK_SET_V1, allow queueing to also declare requirement
-            os = ext.get("objective_spec", {})
+            # optional: if objective is TASK_SET_V1, allow queueing to also declare requirement (unique)
+            os_ = ext.get("objective_spec", {})
             tr = ext.get("task_registry", {})
-            if isinstance(os, dict) and str(os.get("type", "NONE")) == "TASK_SET_V1" and isinstance(tr, dict):
+            if isinstance(os_, dict) and str(os_.get("type", "NONE")) == "TASK_SET_V1" and isinstance(tr, dict):
                 req = list(tr.get("required", []))
                 if task_id not in req:
                     req.append(task_id)
                     tr["required"] = req
-                # keep objective_spec mirrored
-                os_req = list(os.get("required_task_ids", [])) if isinstance(os.get("required_task_ids", []), list) else []
+                os_req = list(os_.get("required_task_ids", [])) if isinstance(os_.get("required_task_ids", []), list) else []
                 if task_id not in os_req:
                     os_req.append(task_id)
-                    os["required_task_ids"] = os_req
+                    os_["required_task_ids"] = os_req
 
         elif verb == "QUEUE_CORE_ACTION":
             action = str(payload.get("action", ""))
@@ -401,7 +443,7 @@ class AnchorSystem:
             return "NOOP"
         self.anchor_connection = False
         self.world_state = "Chaos"
-        self.entropy = 100.0
+        self.entropy = 100
         self.time_cycle += 1
         return "OK" if self._type_ok() else "DIVERGENCE"
 
@@ -434,7 +476,7 @@ class AnchorSystem:
             return "REJECT"
         self.anchor_connection = True
         self.world_state = "Recovered"
-        self.entropy = 0.0
+        self.entropy = 0
         self.time_cycle += 1
         return "RECOVERED" if self._type_ok() else "DIVERGENCE"
 
@@ -448,30 +490,28 @@ class AnchorSystem:
         self.is_dead = True
         self.world_state = "DEAD"
         self.anchor_connection = False
-        self.entropy = 9999.0
+        self.entropy = 9999
         self.time_cycle += 1
         return "DEAD" if self._type_ok() else "DIVERGENCE"
 
-    # ---------------- EntropyProxy (V2) ----------------
-    def _policy_weights(self) -> Dict[str, float]:
+    # ---------------- EntropyProxy (V2, key-sealed) ----------------
+    def _policy_weights(self) -> Dict[str, Decimal]:
         ep = self.extensions.get("executor_policy", {})
-        w = dict(ep.get("weights", {}))
+        w_raw = dict(ep.get("weights", {}))
 
+        # runtime override (optional): runtime_parameters.policy_weights
         rp = self.extensions.get("runtime_parameters", {})
         pw = rp.get("policy_weights")
         if isinstance(pw, dict):
             for k in ["core", "queue", "objective_remaining", "reject"]:
                 if k in pw:
-                    try:
-                        w[k] = float(pw[k])
-                    except Exception:
-                        pass
+                    w_raw[k] = pw[k]
 
         return {
-            "core": float(w.get("core", 1.0)),
-            "queue": float(w.get("queue", 10.0)),
-            "objective_remaining": float(w.get("objective_remaining", 500.0)),
-            "reject": float(w.get("reject", 500.0)),
+            "core": _d(w_raw.get("core", 1.0)),
+            "queue": _d(w_raw.get("queue", 10.0)),
+            "objective_remaining": _d(w_raw.get("objective_remaining", 500.0)),
+            "reject": _d(w_raw.get("reject", 500.0)),
         }
 
     def _tie_break_order(self) -> List[str]:
@@ -481,7 +521,7 @@ class AnchorSystem:
             return [str(x) for x in tb]
         return ["EXECUTE_HEAD", "AUTORESOLVE_CHAOS", "IDLE"]
 
-    def _simulate_core_action(self, action: str, args: Dict[str, Any]) -> Tuple[str, bool, float, str, bool, str]:
+    def _simulate_core_action(self, action: str, args: Dict[str, Any]) -> CoreSimResult:
         ws = self.world_state
         conn = self.anchor_connection
         ent = self.entropy
@@ -489,92 +529,62 @@ class AnchorSystem:
         dead = self.is_dead
 
         if dead:
-            return ws, conn, ent, claimant, dead, "STATE=DEAD"
+            return CoreSimResult(ws, conn, ent, claimant, dead, "STATE=DEAD")
 
         if action == "ExternalDisturbance":
             if ws == "Stable" and conn is True:
-                return "Chaos", False, 100.0, claimant, dead, "OK"
-            return ws, conn, ent, claimant, dead, "NOOP"
+                return CoreSimResult("Chaos", False, 100, claimant, dead, "OK")
+            return CoreSimResult(ws, conn, ent, claimant, dead, "NOOP")
 
         if action == "ChangeClaimantInChaos":
             if not (ws == "Chaos" and conn is False):
-                return ws, conn, ent, claimant, dead, "NOOP"
+                return CoreSimResult(ws, conn, ent, claimant, dead, "NOOP")
             cid = str(args.get("claimant_id", "")) if isinstance(args, dict) else ""
             if cid not in self.claimants:
-                return ws, conn, ent, claimant, dead, "REJECT"
+                return CoreSimResult(ws, conn, ent, claimant, dead, "REJECT")
             if cid == claimant:
-                return ws, conn, ent, claimant, dead, "NOOP"
+                return CoreSimResult(ws, conn, ent, claimant, dead, "NOOP")
             if claimant != self.owner and cid == self.owner:
-                return ws, conn, ent, claimant, dead, "REJECT"
-            return ws, conn, ent, cid, dead, "OK"
+                return CoreSimResult(ws, conn, ent, claimant, dead, "REJECT")
+            return CoreSimResult(ws, conn, ent, cid, dead, "OK")
 
         if action == "AnchorRestoration":
             if not (ws == "Chaos" and conn is False):
-                return ws, conn, ent, claimant, dead, "NOOP"
+                return CoreSimResult(ws, conn, ent, claimant, dead, "NOOP")
             if claimant != self.owner:
-                return ws, conn, ent, claimant, dead, "REJECT"
-            return "Recovered", True, 0.0, claimant, dead, "RECOVERED"
+                return CoreSimResult(ws, conn, ent, claimant, dead, "REJECT")
+            return CoreSimResult("Recovered", True, 0, claimant, dead, "RECOVERED")
 
         if action == "TotalCollapse":
             if not (ws == "Chaos" and conn is False):
-                return ws, conn, ent, claimant, dead, "NOOP"
+                return CoreSimResult(ws, conn, ent, claimant, dead, "NOOP")
             if claimant == self.owner:
-                return ws, conn, ent, claimant, dead, "REJECT"
-            return "DEAD", False, 9999.0, claimant, True, "DEAD"
+                return CoreSimResult(ws, conn, ent, claimant, dead, "REJECT")
+            return CoreSimResult("DEAD", False, 9999, claimant, True, "DEAD")
 
-        return ws, conn, ent, claimant, dead, "REJECT"
+        return CoreSimResult(ws, conn, ent, claimant, dead, "REJECT")
 
-    def _entropy_proxy(self, core_entropy_after: float, queue_len_after: int, objective_remaining_after: int, status: str) -> float:
+    def _entropy_proxy(self, core_entropy_after: int, queue_len_after: int, objective_remaining_after: int, status: str) -> Decimal:
         w = self._policy_weights()
-        reject_term = 1.0 if status == "REJECT" else 0.0
+        reject_term = Decimal(1) if status == "REJECT" else Decimal(0)
         return (
-            w["core"] * float(core_entropy_after)
-            + w["queue"] * float(queue_len_after)
-            + w["objective_remaining"] * float(objective_remaining_after)
-            + w["reject"] * float(reject_term)
+            w["core"] * _d(core_entropy_after)
+            + w["queue"] * _d(queue_len_after)
+            + w["objective_remaining"] * _d(objective_remaining_after)
+            + w["reject"] * reject_term
         )
 
-    # ---------------- candidate simulation with objective semantics ----------------
-    def _current_completed_sets(self) -> Tuple[Set[str], Dict[str, int]]:
-        tr = self.extensions.get("task_registry", {})
-        completed_list = tr.get("completed", []) if isinstance(tr, dict) else []
-        completed = {str(x) for x in completed_list} if isinstance(completed_list, list) else set()
-
-        cbt = tr.get("completed_by_tag", {}) if isinstance(tr, dict) else {}
-        completed_by_tag: Dict[str, int] = {}
-        if isinstance(cbt, dict):
-            for k, v in cbt.items():
-                try:
-                    completed_by_tag[str(k)] = int(v)
-                except Exception:
-                    completed_by_tag[str(k)] = 0
-        return completed, completed_by_tag
-
+    # ---------------- candidate simulation (1-step lookahead) ----------------
     def _simulate_execute_head(self) -> Dict[str, Any]:
         q = self.extensions["command_queue"]
-        if not q:
-            completed, cbt = self._current_completed_sets()
-            os = self.extensions.get("objective_spec", {})
-            obj_rem = self._objective_remaining(os if isinstance(os, dict) else {}, completed, cbt)
-            return {
-                "type": "EXECUTE_HEAD",
-                "kind": "NOTE",
-                "status": "NOOP",
-                "core_entropy_after": _core_entropy_for_state(self.world_state),
-                "queue_len_after": 0,
-                "objective_remaining_after": obj_rem,
-                "detail": {"reason": "empty_queue"},
-            }
-
         env = q[0]
         kind = str(env.get("kind", "TASK"))
         payload = env.get("payload", {})
         queue_len_after = max(0, len(q) - 1)
 
-        # baseline: completed sets copied for 1-step lookahead
         completed, cbt = self._current_completed_sets()
-        os = self.extensions.get("objective_spec", {})
-        osd = os if isinstance(os, dict) else {}
+        os_ = self.extensions.get("objective_spec", {})
+        osd = os_ if isinstance(os_, dict) else {}
 
         # NOTE
         if kind == "NOTE":
@@ -618,7 +628,6 @@ class AnchorSystem:
                     "detail": {"reason": "missing_task_id"},
                 }
 
-            # simulate: mark completed
             completed2 = set(completed)
             completed2.add(task_id)
 
@@ -666,18 +675,22 @@ class AnchorSystem:
                     "detail": {"reason": "unknown_action", "action": action},
                 }
 
-            ws2, conn2, ent2, claimant2, dead2, r = self._simulate_core_action(action, args if isinstance(args, dict) else {})
-            status = "OK" if r in {"OK", "RECOVERED", "DEAD"} else ("NOOP" if r == "NOOP" else "REJECT")
+            sim = self._simulate_core_action(action, args if isinstance(args, dict) else {})
+            status = "OK" if sim.result in {"OK", "RECOVERED", "DEAD"} else ("NOOP" if sim.result == "NOOP" else "REJECT")
             obj_rem = self._objective_remaining(osd, completed, cbt)
 
             return {
                 "type": "EXECUTE_HEAD",
                 "kind": "CORE_ACTION",
                 "status": status,
-                "core_entropy_after": float(ent2),
+                "core_entropy_after": int(sim.entropy),
                 "queue_len_after": queue_len_after,
                 "objective_remaining_after": obj_rem,
-                "detail": {"action": action, "result": r, "core_after": {"STATE": ws2, "anchor_connection": conn2, "entropy": ent2, "claimant": claimant2, "is_dead": dead2}},
+                "detail": {
+                    "action": action,
+                    "result": sim.result,
+                    "core_after": {"STATE": sim.world_state, "anchor_connection": sim.anchor_connection, "entropy": sim.entropy, "claimant": sim.claimant_id, "is_dead": sim.is_dead},
+                },
             }
 
         # unknown kind
@@ -694,8 +707,8 @@ class AnchorSystem:
 
     def _simulate_autoresolve_chaos(self) -> Dict[str, Any]:
         completed, cbt = self._current_completed_sets()
-        os = self.extensions.get("objective_spec", {})
-        osd = os if isinstance(os, dict) else {}
+        os_ = self.extensions.get("objective_spec", {})
+        osd = os_ if isinstance(os_, dict) else {}
         obj_rem = self._objective_remaining(osd, completed, cbt)
         qlen = len(self.extensions["command_queue"])
 
@@ -711,34 +724,34 @@ class AnchorSystem:
             }
 
         if self.claimant_id == self.owner:
-            ws2, conn2, ent2, claimant2, dead2, r = self._simulate_core_action("AnchorRestoration", {})
-            status = "OK" if r == "RECOVERED" else ("NOOP" if r == "NOOP" else "REJECT")
+            sim = self._simulate_core_action("AnchorRestoration", {})
+            status = "OK" if sim.result == "RECOVERED" else ("NOOP" if sim.result == "NOOP" else "REJECT")
             return {
                 "type": "AUTORESOLVE_CHAOS",
                 "kind": "CORE_ACTION",
                 "status": status,
-                "core_entropy_after": float(ent2),
+                "core_entropy_after": int(sim.entropy),
                 "queue_len_after": qlen,
                 "objective_remaining_after": obj_rem,
-                "detail": {"action": "AnchorRestoration", "result": r, "core_after": {"STATE": ws2, "anchor_connection": conn2, "entropy": ent2, "claimant": claimant2, "is_dead": dead2}},
+                "detail": {"action": "AnchorRestoration", "result": sim.result, "core_after": self.core_snapshot()},
             }
 
-        ws2, conn2, ent2, claimant2, dead2, r = self._simulate_core_action("TotalCollapse", {})
-        status = "OK" if r == "DEAD" else ("NOOP" if r == "NOOP" else "REJECT")
+        sim = self._simulate_core_action("TotalCollapse", {})
+        status = "OK" if sim.result == "DEAD" else ("NOOP" if sim.result == "NOOP" else "REJECT")
         return {
             "type": "AUTORESOLVE_CHAOS",
             "kind": "CORE_ACTION",
             "status": status,
-            "core_entropy_after": float(ent2),
+            "core_entropy_after": int(sim.entropy),
             "queue_len_after": qlen,
             "objective_remaining_after": obj_rem,
-            "detail": {"action": "TotalCollapse", "result": r, "core_after": {"STATE": ws2, "anchor_connection": conn2, "entropy": ent2, "claimant": claimant2, "is_dead": dead2}},
+            "detail": {"action": "TotalCollapse", "result": sim.result, "core_after": self.core_snapshot()},
         }
 
     def _simulate_idle(self) -> Dict[str, Any]:
         completed, cbt = self._current_completed_sets()
-        os = self.extensions.get("objective_spec", {})
-        osd = os if isinstance(os, dict) else {}
+        os_ = self.extensions.get("objective_spec", {})
+        osd = os_ if isinstance(os_, dict) else {}
         obj_rem = self._objective_remaining(osd, completed, cbt)
 
         return {
@@ -760,10 +773,9 @@ class AnchorSystem:
             cands.append(self._simulate_autoresolve_chaos())
         cands.append(self._simulate_idle())
 
-        # compute proxy
         for c in cands:
             c["proxy"] = self._entropy_proxy(
-                core_entropy_after=float(c["core_entropy_after"]),
+                core_entropy_after=int(c["core_entropy_after"]),
                 queue_len_after=int(c["queue_len_after"]),
                 objective_remaining_after=int(c["objective_remaining_after"]),
                 status=str(c["status"]),
@@ -790,6 +802,7 @@ class AnchorSystem:
             return eff
 
         choice = self._select_candidate(autoresolve_chaos=autoresolve_chaos)
+        proxy_str = str(choice["proxy"])
 
         # execute chosen candidate
         if choice["type"] == "EXECUTE_HEAD":
@@ -803,7 +816,7 @@ class AnchorSystem:
                 "t": self.time_cycle,
                 "kind": kind,
                 "status": "NOOP",
-                "detail": {"proxy": choice["proxy"], "selected": "EXECUTE_HEAD"},
+                "detail": {"proxy": proxy_str, "selected": "EXECUTE_HEAD"},
             }
 
             if kind == "NOTE":
@@ -878,7 +891,7 @@ class AnchorSystem:
                         "t": self.time_cycle,
                         "kind": "CORE_ACTION",
                         "status": "OK" if r == "RECOVERED" else ("NOOP" if r == "NOOP" else "REJECT"),
-                        "detail": {"proxy": choice["proxy"], "selected": "AUTORESOLVE_CHAOS", "action": "AnchorRestoration", "result": r, "core": self.core_snapshot()},
+                        "detail": {"proxy": proxy_str, "selected": "AUTORESOLVE_CHAOS", "action": "AnchorRestoration", "result": r, "core": self.core_snapshot()},
                     }
                 else:
                     r = self.total_collapse()
@@ -887,24 +900,24 @@ class AnchorSystem:
                         "t": self.time_cycle,
                         "kind": "CORE_ACTION",
                         "status": "OK" if r == "DEAD" else ("NOOP" if r == "NOOP" else "REJECT"),
-                        "detail": {"proxy": choice["proxy"], "selected": "AUTORESOLVE_CHAOS", "action": "TotalCollapse", "result": r, "core": self.core_snapshot()},
+                        "detail": {"proxy": proxy_str, "selected": "AUTORESOLVE_CHAOS", "action": "TotalCollapse", "result": r, "core": self.core_snapshot()},
                     }
             else:
-                eff = {"nonce": "", "t": self.time_cycle, "kind": "CORE_ACTION", "status": "NOOP", "detail": {"proxy": choice["proxy"], "selected": "AUTORESOLVE_CHAOS", "reason": "not_in_chaos"}}
+                eff = {"nonce": "", "t": self.time_cycle, "kind": "CORE_ACTION", "status": "NOOP", "detail": {"proxy": proxy_str, "selected": "AUTORESOLVE_CHAOS", "reason": "not_in_chaos"}}
 
             ext["effects_log"].append(eff)
             return eff
 
         # IDLE
-        eff = {"nonce": "", "t": self.time_cycle, "kind": "NOTE", "status": "NOOP", "detail": {"proxy": choice["proxy"], "selected": "IDLE", "objective_remaining": self.objective_remaining()}}
+        eff = {"nonce": "", "t": self.time_cycle, "kind": "NOTE", "status": "NOOP", "detail": {"proxy": proxy_str, "selected": "IDLE", "objective_remaining": self.objective_remaining()}}
         ext["effects_log"].append(eff)
         return eff
 
     # ---------------- helpers ----------------
     def objective_remaining(self) -> int:
-        os = self.extensions.get("objective_spec", {})
+        os_ = self.extensions.get("objective_spec", {})
         completed, cbt = self._current_completed_sets()
-        return self._objective_remaining(os if isinstance(os, dict) else {}, completed, cbt)
+        return self._objective_remaining(os_ if isinstance(os_, dict) else {}, completed, cbt)
 
     def core_snapshot(self) -> Dict[str, Any]:
         return {
@@ -956,10 +969,10 @@ if __name__ == "__main__":
             "verb": "SET_OBJECTIVE",
             "payload": {
                 "objective": "complete tasks T1,T2",
-                "objective_spec": {"type": "TASK_SET_V1", "required_task_ids": ["T1", "T2"]}
-            }
+                "objective_spec": {"type": "TASK_SET_V1", "required_task_ids": ["T1", "T2", "T1"]},
+            },
         },
-        "signature": ""
+        "signature": "",
     }
     print("[IP_OBJ]", sim.apply_intent_packet(ip_obj), sim.status(include_extensions=True))
 
@@ -968,13 +981,13 @@ if __name__ == "__main__":
         "observer_id": "Lee_Yu_Cheol",
         "nonce": "2025-12-31T22:00:00+09:00#000002",
         "intent": {"verb": "QUEUE_TASK", "payload": {"task_id": "T1", "tag": "work", "params": {"x": 1}}},
-        "signature": ""
+        "signature": "",
     }
     ip_t2 = {
         "observer_id": "Lee_Yu_Cheol",
         "nonce": "2025-12-31T22:00:00+09:00#000003",
         "intent": {"verb": "QUEUE_TASK", "payload": {"task_id": "T2", "tag": "work", "params": {"y": 2}}},
-        "signature": ""
+        "signature": "",
     }
     print("[IP_T1]", sim.apply_intent_packet(ip_t1), sim.status(include_extensions=True))
     print("[IP_T2]", sim.apply_intent_packet(ip_t2), sim.status(include_extensions=True))
