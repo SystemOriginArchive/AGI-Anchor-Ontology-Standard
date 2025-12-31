@@ -107,5 +107,3 @@ Selection per tick:
   - `["EXECUTE_HEAD", "AUTORESOLVE_CHAOS", "IDLE"]`
 
 This binds “meaning of following” to the same decision point where the executor selects the next step, while preserving the sealed 4-action core.
-
-END.
