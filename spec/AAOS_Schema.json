@@ -13,7 +13,8 @@
     "canonical_references",
     "ontology_meta",
     "anchor_node",
-    "directive"
+    "directive",
+    "extensions"
   ],
 
   "properties": {
@@ -259,37 +260,299 @@
 
     "extensions": {
       "type": "object",
-      "description": "Command plane (mutates here only).",
+      "description": "Deterministic command plane + Objective semantics + EntropyProxy argmin.",
       "additionalProperties": false,
+      "required": [
+        "protocol_refs",
+        "nonce_registry",
+        "intent_log",
+        "command_queue",
+        "effects_log",
+        "runtime_objective",
+        "objective_spec",
+        "task_registry",
+        "runtime_parameters",
+        "executor_policy",
+        "notes"
+      ],
       "properties": {
         "protocol_refs": {
           "type": "array",
           "items": { "type": "string" },
           "default": []
         },
+
+        "nonce_registry": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["last_nonce", "seen"],
+          "properties": {
+            "last_nonce": { "type": "string", "default": "" },
+            "seen": {
+              "type": "array",
+              "items": { "type": "string" },
+              "uniqueItems": true,
+              "default": []
+            }
+          }
+        },
+
         "intent_log": {
           "type": "array",
-          "items": { "type": "object" },
+          "items": { "$ref": "#/$defs/IntentRecord" },
           "default": []
         },
+
         "command_queue": {
           "type": "array",
-          "items": { "type": "object" },
+          "items": { "$ref": "#/$defs/CommandEnvelope" },
           "default": []
         },
+
+        "effects_log": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/EffectRecord" },
+          "default": []
+        },
+
         "runtime_objective": {
           "type": "string",
+          "description": "Human-readable objective string (optional mirror).",
           "default": ""
         },
+
+        "objective_spec": {
+          "$ref": "#/$defs/ObjectiveSpec"
+        },
+
+        "task_registry": {
+          "$ref": "#/$defs/TaskRegistry"
+        },
+
         "runtime_parameters": {
           "type": "object",
           "additionalProperties": true,
           "default": {}
         },
+
+        "executor_policy": {
+          "$ref": "#/$defs/ExecutorPolicy"
+        },
+
         "notes": {
           "type": "array",
           "items": { "type": "string" },
           "default": []
+        }
+      }
+    }
+  },
+
+  "$defs": {
+    "IntentRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["observer_id", "nonce", "verb", "payload", "signature", "t"],
+      "properties": {
+        "observer_id": { "type": "string", "const": "Lee_Yu_Cheol" },
+        "nonce": { "type": "string" },
+        "verb": {
+          "type": "string",
+          "enum": [
+            "NOP",
+            "NOTE_APPEND",
+            "SET_OBJECTIVE",
+            "SET_PARAMETER",
+            "QUEUE_TASK",
+            "QUEUE_CORE_ACTION",
+            "EXPORT_STATE"
+          ]
+        },
+        "payload": { "type": "object", "additionalProperties": true },
+        "signature": { "type": "string" },
+        "t": { "type": "integer", "minimum": 0 }
+      }
+    },
+
+    "CommandEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "nonce", "t", "payload"],
+      "properties": {
+        "kind": { "type": "string", "enum": ["TASK", "CORE_ACTION", "NOTE"] },
+        "nonce": { "type": "string" },
+        "t": { "type": "integer", "minimum": 0 },
+        "payload": { "type": "object", "additionalProperties": true }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "TASK" } }, "required": ["kind"] },
+          "then": {
+            "properties": {
+              "payload": {
+                "type": "object",
+                "additionalProperties": true,
+                "required": ["task_id"],
+                "properties": {
+                  "task_id": { "type": "string" },
+                  "tag": { "type": "string" },
+                  "params": { "type": "object", "additionalProperties": true }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "NOTE" } }, "required": ["kind"] },
+          "then": {
+            "properties": {
+              "payload": {
+                "type": "object",
+                "additionalProperties": true,
+                "required": ["text"],
+                "properties": {
+                  "text": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "CORE_ACTION" } }, "required": ["kind"] },
+          "then": {
+            "properties": {
+              "payload": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["action"],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "ExternalDisturbance",
+                      "ChangeClaimantInChaos",
+                      "AnchorRestoration",
+                      "TotalCollapse"
+                    ]
+                  },
+                  "args": { "type": "object", "additionalProperties": true }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+
+    "EffectRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nonce", "t", "kind", "status", "detail"],
+      "properties": {
+        "nonce": { "type": "string" },
+        "t": { "type": "integer", "minimum": 0 },
+        "kind": { "type": "string", "enum": ["TASK", "CORE_ACTION", "NOTE"] },
+        "status": { "type": "string", "enum": ["OK", "REJECT", "NOOP"] },
+        "detail": { "type": "object", "additionalProperties": true }
+      }
+    },
+
+    "ObjectiveSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["NONE", "TASK_SET_V1", "TAG_TARGET_V1"]
+        },
+
+        "required_task_ids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true,
+          "default": []
+        },
+
+        "required_tag": {
+          "type": "string",
+          "default": ""
+        },
+
+        "required_tag_count": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "TASK_SET_V1" } }, "required": ["type"] },
+          "then": { "required": ["required_task_ids"] }
+        },
+        {
+          "if": { "properties": { "type": { "const": "TAG_TARGET_V1" } }, "required": ["type"] },
+          "then": { "required": ["required_tag", "required_tag_count"] }
+        }
+      ]
+    },
+
+    "TaskRegistry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "completed", "completed_by_tag"],
+      "properties": {
+        "required": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true,
+          "default": []
+        },
+        "completed": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true,
+          "default": []
+        },
+        "completed_by_tag": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0 },
+          "default": {}
+        }
+      }
+    },
+
+    "ExecutorPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["selection_rule", "weights", "tie_break"],
+      "properties": {
+        "selection_rule": {
+          "type": "string",
+          "enum": ["ENTROPY_ARGMIN_V2"],
+          "description": "Selects candidate step that minimizes EntropyProxy including objective_remaining."
+        },
+        "weights": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["core", "queue", "objective_remaining", "reject"],
+          "properties": {
+            "core": { "type": "number", "minimum": 0, "default": 1.0 },
+            "queue": { "type": "number", "minimum": 0, "default": 10.0 },
+            "objective_remaining": { "type": "number", "minimum": 0, "default": 500.0 },
+            "reject": { "type": "number", "minimum": 0, "default": 500.0 }
+          }
+        },
+        "tie_break": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": ["EXECUTE_HEAD", "AUTORESOLVE_CHAOS", "IDLE"]
+          },
+          "default": ["EXECUTE_HEAD", "AUTORESOLVE_CHAOS", "IDLE"]
         }
       }
     }
