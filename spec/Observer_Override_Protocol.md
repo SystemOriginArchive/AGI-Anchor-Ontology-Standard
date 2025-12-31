@@ -74,8 +74,8 @@ Minimal canonical packet form (runtime input):
         "required_task_ids": ["T1", "T2"]
       }
     }
-  },
   "signature": ""
+      }
       }
 
 
