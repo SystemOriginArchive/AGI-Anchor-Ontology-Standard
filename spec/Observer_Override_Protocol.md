@@ -144,6 +144,7 @@ CORE_ACTION payload:
 Task completion semantics:
 - executing a `TASK` envelope marks `task_registry.completed += task_id`
 - if `tag != ""`, increments `task_registry.completed_by_tag[tag]`
+* `completed_by_tag[tag]` increments ONLY when a `task_id` is newly added to `task_registry.completed[]`.
 
 ---
 
