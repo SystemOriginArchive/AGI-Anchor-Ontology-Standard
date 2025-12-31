@@ -77,6 +77,7 @@ Minimal canonical packet form (runtime input):
     }
   },
 }
+
 ---
 
 
@@ -87,7 +88,7 @@ Nonce rule:
 Commit rule (atomic):
 - If a packet is REJECT, it MUST NOT be committed to `nonce_registry` and MUST NOT be appended to `intent_log[]`.
 
----
+
 
 ## 5) Verb Set (extensions-only)
 
