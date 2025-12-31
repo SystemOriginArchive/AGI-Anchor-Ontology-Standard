@@ -87,53 +87,34 @@ If a packet is REJECTED, it MUST NOT be committed to extensions.nonce_registry
 and MUST NOT be appended to extensions.intent_log[].
 
 ---
-5) Verb Set (extensions-only)
+## 5) Verb Set (extensions-only)
 
 Valid verbs (must match schema enum exactly):
 
-[NOP]
+### [NOP]
+- no-op (log only)
 
-no-op (log only)
+### [NOTE_APPEND]
+- appends `payload.text` (or stringified payload) to `extensions.notes[]`
 
-[NOTE_APPEND]
+### [SET_OBJECTIVE]
+- sets `extensions.runtime_objective` (optional mirror string)
+- sets `extensions.objective_spec` (typed semantics)
+- syncs `extensions.task_registry.required` when type is `TASK_SET_V1`
 
-appends payload.text (or stringified payload) to extensions.notes[]
+### [SET_PARAMETER]
+- mutates `extensions.runtime_parameters` only
 
-[SET_OBJECTIVE]
+### [QUEUE_TASK]
+- pushes a TASK envelope into `extensions.command_queue[]`
+- requires `payload.task_id`
 
-sets extensions.runtime_objective (optional mirror string)
+### [QUEUE_CORE_ACTION]
+- pushes a CORE_ACTION envelope into `extensions.command_queue[]`
 
-sets extensions.objective_spec (typed semantics)
+### [EXPORT_STATE]
+- emits a snapshot (implementation-defined) into `extensions.notes[]` or an export channel
 
-syncs extensions.task_registry.required when type is TASK_SET_V1
-
-[SET_PARAMETER]
-
-mutates extensions.runtime_parameters only
-
-[QUEUE_TASK]
-
-pushes a TASK envelope into extensions.command_queue[]
-
-requires payload.task_id
-
-[QUEUE_CORE_ACTION]
-
-pushes a CORE_ACTION envelope into extensions.command_queue[]
-
-[EXPORT_STATE]
-
-emits a snapshot (implementation-defined) into extensions.notes[]
-or an export channel
-
-Unknown verbs
-
-MUST be normalized as a TASK envelope with:
-
-payload.task_id = "UNKNOWN_VERB:<raw_verb>"
-
-6) Typed Command Envelopes (extensions.command_queue[])
-
-extensions.command_queue[] contains ONLY CommandEnvelope records.
-
-Generic Envelope Schema (conceptual)
+### Unknown verbs
+- MUST be normalized as a TASK envelope with:
+  - `payload.task_id = "UNKNOWN_VERB:<raw_verb>"`
