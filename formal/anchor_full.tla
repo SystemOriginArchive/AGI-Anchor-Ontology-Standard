@@ -1,4 +1,4 @@
----------------- MODULE anchor_full ----------------
+---- MODULE anchor_full ----
 
 (*
 AAOS v1.0.4 Formal Dynamics (0-gap closure)
