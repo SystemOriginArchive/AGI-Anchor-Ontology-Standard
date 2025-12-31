@@ -1,5 +1,6 @@
 {
-  "$schema": "./AAOS_Schema.json",
+ "$schema": "./spec/AAOS_Schema.json",
+
 
   "x_root": {
     "id": "GENESIS_HEXAGON_V1",
