@@ -58,19 +58,15 @@ They are NOT executed directly.
 Minimal canonical form:
 
 {
-  "observer_id": "Lee_Yu_Cheol",
-  "nonce": "2025-12-31T22:00:00+09:00#000001",
-  "verb": "SET_OBJECTIVE",
-  "payload": {
-    "objective": "complete tasks T1,T2",
-    "objective_spec": {
-      "type": "TASK_SET_V1",
-      "required_task_ids": ["T1", "T2"]
-    }
+  "observer_id": "...",
+  "nonce": "...",
+  "intent": {
+    "verb": "SET_OBJECTIVE",
+    "payload": {...}
   },
-  "signature": "",
-  "t": 0
+  "signature": ""
 }
+
 
 Nonce rule:
 - Nonce MUST be strictly increasing (lexical)
