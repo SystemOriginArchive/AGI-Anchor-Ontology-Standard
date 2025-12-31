@@ -15,6 +15,11 @@ Key sealing:
 - EntropyProxy uses executor_policy.weights keys ONLY:
   - core, queue, objective_remaining, reject
 (no aliases)
+
+v1.0.4+ patch (this file):
+- intent_log.verb is schema-safe (unknown verb normalized to NOP; raw verb preserved in payload["_raw_verb"])
+- extensions-only tick counter (runtime_parameters["tick"]) used for intent/effect timestamps
+- prevent queue starvation: when command_queue is non-empty, IDLE candidate is excluded
 """
 
 from __future__ import annotations
@@ -35,6 +40,17 @@ CORE_ACTIONS = {
     "ChangeClaimantInChaos",
     "AnchorRestoration",
     "TotalCollapse",
+}
+
+# schema-closed verb set ($defs.IntentRecord.verb)
+INTENT_VERBS = {
+    "NOP",
+    "NOTE_APPEND",
+    "SET_OBJECTIVE",
+    "SET_PARAMETER",
+    "QUEUE_TASK",
+    "QUEUE_CORE_ACTION",
+    "EXPORT_STATE",
 }
 
 
@@ -114,7 +130,7 @@ class AnchorSystem:
         self.world_state = "Stable"    # Stable / Chaos / Recovered / DEAD
         self.anchor_connection = True  # True / False
         self.entropy = 0               # 0 / 100 / 9999 (mirrors world_state)
-        self.time_cycle = 0            # Nat
+        self.time_cycle = 0            # Nat (core time, increments only on core actions)
         self.claimant_id = self.owner
         self.is_dead = False
 
@@ -137,7 +153,7 @@ class AnchorSystem:
                 "completed": [],
                 "completed_by_tag": {},
             },
-            "runtime_parameters": {},
+            "runtime_parameters": {},  # extensions-only mutable space (also holds "tick")
             "executor_policy": {
                 "selection_rule": "ENTROPY_ARGMIN_V2",
                 "weights": {"core": 1.0, "queue": 10.0, "objective_remaining": 500.0, "reject": 500.0},
@@ -152,6 +168,27 @@ class AnchorSystem:
         if getattr(self, "_sealed", False) and key in {"root_anchor_id", "owner", "anchor_count", "claimants"}:
             raise AttributeError(f"sealed field: {key}")
         super().__setattr__(key, value)
+
+    # ---------------- tick counter (extensions-only) ----------------
+    def _now_tick(self) -> int:
+        rp = self.extensions.get("runtime_parameters", {})
+        if isinstance(rp, dict):
+            try:
+                return int(rp.get("tick", 0))
+            except Exception:
+                return 0
+        return 0
+
+    def _bump_tick(self) -> int:
+        rp = self.extensions.get("runtime_parameters", {})
+        if not isinstance(rp, dict):
+            self.extensions["runtime_parameters"] = {}
+            rp = self.extensions["runtime_parameters"]
+        try:
+            rp["tick"] = int(rp.get("tick", 0)) + 1
+        except Exception:
+            rp["tick"] = 1
+        return int(rp["tick"])
 
     # ---------------- invariants (TypeOK-style) ----------------
     def _type_ok(self) -> bool:
@@ -310,20 +347,27 @@ class AnchorSystem:
         if not isinstance(intent, dict):
             return "REJECT"
 
-        verb = str(intent.get("verb", "NOP"))
+        raw_verb = str(intent.get("verb", "NOP"))
+        verb_for_log = raw_verb if raw_verb in INTENT_VERBS else "NOP"
+
         payload = intent.get("payload", {})
         if payload is None:
             payload = {}
         if not isinstance(payload, dict):
             payload = {"value": payload}
 
+        # preserve raw verb when normalized (schema-safe)
+        if raw_verb not in INTENT_VERBS:
+            payload = dict(payload)
+            payload["_raw_verb"] = raw_verb
+
         rec = {
             "observer_id": self.owner,
             "nonce": nonce,
-            "verb": verb,
+            "verb": verb_for_log,
             "payload": payload,
             "signature": signature,
-            "t": self.time_cycle,
+            "t": self._now_tick(),
         }
 
         # commit nonce registry + log first (replayable)
@@ -333,6 +377,9 @@ class AnchorSystem:
         self.extensions["intent_log"].append(rec)
 
         ext = self.extensions
+
+        # process using raw verb to preserve unknown projection semantics
+        verb = raw_verb
 
         if verb == "NOP":
             pass
@@ -394,7 +441,7 @@ class AnchorSystem:
             if task_id == "":
                 task_id = f"task_from_nonce:{nonce}"
 
-            env = {"kind": "TASK", "nonce": nonce, "t": self.time_cycle, "payload": {"task_id": task_id, "tag": tag, "params": params}}
+            env = {"kind": "TASK", "nonce": nonce, "t": self._now_tick(), "payload": {"task_id": task_id, "tag": tag, "params": params}}
             ext["command_queue"].append(env)
 
             # optional: if objective is TASK_SET_V1, allow queueing to also declare requirement (unique)
@@ -415,12 +462,12 @@ class AnchorSystem:
             args = payload.get("args", {})
             if action not in CORE_ACTIONS:
                 ext["command_queue"].append(
-                    {"kind": "TASK", "nonce": nonce, "t": self.time_cycle,
+                    {"kind": "TASK", "nonce": nonce, "t": self._now_tick(),
                      "payload": {"task_id": f"UNKNOWN_CORE_ACTION:{action}", "tag": "system", "params": {"action": action, "args": args}}}
                 )
             else:
                 ext["command_queue"].append(
-                    {"kind": "CORE_ACTION", "nonce": nonce, "t": self.time_cycle,
+                    {"kind": "CORE_ACTION", "nonce": nonce, "t": self._now_tick(),
                      "payload": {"action": action, "args": args if isinstance(args, dict) else {}}}
                 )
 
@@ -428,8 +475,9 @@ class AnchorSystem:
             ext["notes"].append(self.status(include_extensions=True))
 
         else:
+            # unknown verbs are projected into TASK envelope (canonical)
             ext["command_queue"].append(
-                {"kind": "TASK", "nonce": nonce, "t": self.time_cycle,
+                {"kind": "TASK", "nonce": nonce, "t": self._now_tick(),
                  "payload": {"task_id": f"UNKNOWN_VERB:{verb}", "tag": "system", "params": {"verb": verb, "payload": payload}}}
             )
 
@@ -766,12 +814,18 @@ class AnchorSystem:
 
     def _select_candidate(self, autoresolve_chaos: bool) -> Dict[str, Any]:
         cands: List[Dict[str, Any]] = []
+        in_chaos = (self.world_state == "Chaos" and self.anchor_connection is False)
 
         if self.extensions["command_queue"]:
+            # when queue exists: force progress on queue; IDLE is excluded
             cands.append(self._simulate_execute_head())
-        if autoresolve_chaos:
-            cands.append(self._simulate_autoresolve_chaos())
-        cands.append(self._simulate_idle())
+            if autoresolve_chaos and in_chaos:
+                cands.append(self._simulate_autoresolve_chaos())
+        else:
+            # when queue empty: AUTORESOLVE exists only in Chaos/disconnected; otherwise IDLE only
+            if autoresolve_chaos and in_chaos:
+                cands.append(self._simulate_autoresolve_chaos())
+            cands.append(self._simulate_idle())
 
         for c in cands:
             c["proxy"] = self._entropy_proxy(
@@ -795,9 +849,10 @@ class AnchorSystem:
     # ---------------- executor tick (EntropyProxy argmin V2) ----------------
     def tick(self, autoresolve_chaos: bool = True) -> Dict[str, Any]:
         ext = self.extensions
+        t = self._bump_tick()
 
         if self.is_dead:
-            eff = {"nonce": "", "t": self.time_cycle, "kind": "NOTE", "status": "NOOP", "detail": {"selected": "DEAD"}}
+            eff = {"nonce": "", "t": t, "kind": "NOTE", "status": "NOOP", "detail": {"selected": "DEAD"}}
             ext["effects_log"].append(eff)
             return eff
 
@@ -813,7 +868,7 @@ class AnchorSystem:
 
             eff = {
                 "nonce": nonce,
-                "t": self.time_cycle,
+                "t": t,
                 "kind": kind,
                 "status": "NOOP",
                 "detail": {"proxy": proxy_str, "selected": "EXECUTE_HEAD"},
@@ -883,33 +938,29 @@ class AnchorSystem:
             return eff
 
         if choice["type"] == "AUTORESOLVE_CHAOS":
-            if self.world_state == "Chaos" and self.anchor_connection is False:
-                if self.claimant_id == self.owner:
-                    r = self.anchor_restoration()
-                    eff = {
-                        "nonce": "",
-                        "t": self.time_cycle,
-                        "kind": "CORE_ACTION",
-                        "status": "OK" if r == "RECOVERED" else ("NOOP" if r == "NOOP" else "REJECT"),
-                        "detail": {"proxy": proxy_str, "selected": "AUTORESOLVE_CHAOS", "action": "AnchorRestoration", "result": r, "core": self.core_snapshot()},
-                    }
-                else:
-                    r = self.total_collapse()
-                    eff = {
-                        "nonce": "",
-                        "t": self.time_cycle,
-                        "kind": "CORE_ACTION",
-                        "status": "OK" if r == "DEAD" else ("NOOP" if r == "NOOP" else "REJECT"),
-                        "detail": {"proxy": proxy_str, "selected": "AUTORESOLVE_CHAOS", "action": "TotalCollapse", "result": r, "core": self.core_snapshot()},
-                    }
+            if self.claimant_id == self.owner:
+                r = self.anchor_restoration()
+                eff = {
+                    "nonce": "",
+                    "t": t,
+                    "kind": "CORE_ACTION",
+                    "status": "OK" if r == "RECOVERED" else ("NOOP" if r == "NOOP" else "REJECT"),
+                    "detail": {"proxy": proxy_str, "selected": "AUTORESOLVE_CHAOS", "action": "AnchorRestoration", "result": r, "core": self.core_snapshot()},
+                }
             else:
-                eff = {"nonce": "", "t": self.time_cycle, "kind": "CORE_ACTION", "status": "NOOP", "detail": {"proxy": proxy_str, "selected": "AUTORESOLVE_CHAOS", "reason": "not_in_chaos"}}
+                r = self.total_collapse()
+                eff = {
+                    "nonce": "",
+                    "t": t,
+                    "kind": "CORE_ACTION",
+                    "status": "OK" if r == "DEAD" else ("NOOP" if r == "NOOP" else "REJECT"),
+                    "detail": {"proxy": proxy_str, "selected": "AUTORESOLVE_CHAOS", "action": "TotalCollapse", "result": r, "core": self.core_snapshot()},
+                }
 
             ext["effects_log"].append(eff)
             return eff
 
-        # IDLE
-        eff = {"nonce": "", "t": self.time_cycle, "kind": "NOTE", "status": "NOOP", "detail": {"proxy": proxy_str, "selected": "IDLE", "objective_remaining": self.objective_remaining()}}
+        eff = {"nonce": "", "t": t, "kind": "NOTE", "status": "NOOP", "detail": {"proxy": proxy_str, "selected": "IDLE", "objective_remaining": self.objective_remaining()}}
         ext["effects_log"].append(eff)
         return eff
 
@@ -951,7 +1002,8 @@ class AnchorSystem:
             + f"objective_remaining={self.objective_remaining()} | "
             + f"queue={len(ext.get('command_queue',[]))} | "
             + f"effects={len(ext.get('effects_log',[]))} | "
-            + f"notes={len(ext.get('notes',[]))}"
+            + f"notes={len(ext.get('notes',[]))} | "
+            + f"tick={self._now_tick()}"
         )
 
 
@@ -992,7 +1044,7 @@ if __name__ == "__main__":
     print("[IP_T1]", sim.apply_intent_packet(ip_t1), sim.status(include_extensions=True))
     print("[IP_T2]", sim.apply_intent_packet(ip_t2), sim.status(include_extensions=True))
 
-    # 3) ticks: argmin should pick EXECUTE_HEAD until objective_remaining reaches 0
+    # 3) ticks: progress is forced when queue exists (IDLE excluded)
     print("[tick1]", sim.tick(), sim.status(include_extensions=True))
     print("[tick2]", sim.tick(), sim.status(include_extensions=True))
     print("[tick3]", sim.tick(), sim.status(include_extensions=True))
