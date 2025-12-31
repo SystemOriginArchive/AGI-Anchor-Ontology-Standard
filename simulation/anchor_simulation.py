@@ -1,33 +1,8 @@
-"""
-AAOS Simulation (v1.0.4+)
-
-Core:
-- 4 states / 4 actions only (mirrors TLA)
-- core actions unchanged
-
-Extensions (B-closure, semantics-complete):
-- objective_spec (typed)
-- task_registry (required/completed + tag counts)
-- EntropyProxy includes objective_remaining computed from objective_spec + task_registry
-- tick() selects argmin of EntropyProxy with deterministic tie-break
-
-Key sealing:
-- EntropyProxy uses executor_policy.weights keys ONLY:
-  - core, queue, objective_remaining, reject
-(no aliases)
-
-v1.0.4+ runtime fixes (simulation-only):
-- intent_log.verb is schema-safe (enum only); raw verb preserved in payload["_raw_verb"] when needed
-- tick counter is extensions.runtime_parameters["tick"] (monotone), independent from core time_cycle
-- queue present => IDLE is not a candidate (prevents queue stall appearance)
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal, getcontext
 from typing import Any, Dict, FrozenSet, Iterable, List, Optional, Set, Tuple
-
 
 # deterministic Decimal arithmetic context
 getcontext().prec = 28
@@ -245,20 +220,62 @@ class AnchorSystem:
             if k not in ext:
                 return False
 
-        nr = ext["nonce_registry"]
+        # ---- extension type seals (tick-path stability) ----
+        if not isinstance(ext.get("protocol_refs"), list):
+            return False
+        if not isinstance(ext.get("intent_log"), list):
+            return False
+        if not isinstance(ext.get("command_queue"), list):
+            return False
+        if not isinstance(ext.get("effects_log"), list):
+            return False
+        if not isinstance(ext.get("notes"), list):
+            return False
+        if not isinstance(ext.get("runtime_parameters"), dict):
+            return False
+
+        nr = ext.get("nonce_registry", {})
         if not isinstance(nr, dict) or "last_nonce" not in nr or "seen" not in nr:
             return False
+        if not isinstance(nr.get("last_nonce", ""), str):
+            return False
+        if not isinstance(nr.get("seen", []), list):
+            return False
 
-        tr = ext["task_registry"]
+        tr = ext.get("task_registry", {})
         if not isinstance(tr, dict) or "required" not in tr or "completed" not in tr or "completed_by_tag" not in tr:
             return False
-
-        os_ = ext["objective_spec"]
-        if not isinstance(os_, dict) or "type" not in os_:
+        if not isinstance(tr.get("required", []), list):
+            return False
+        if not isinstance(tr.get("completed", []), list):
+            return False
+        if not isinstance(tr.get("completed_by_tag", {}), dict):
             return False
 
-        ep = ext["executor_policy"]
+        os_ = ext.get("objective_spec", {})
+        if not isinstance(os_, dict) or "type" not in os_:
+            return False
+        if "required_task_ids" in os_ and not isinstance(os_.get("required_task_ids", []), list):
+            return False
+        if "required_tag" in os_ and not isinstance(os_.get("required_tag", ""), str):
+            return False
+        if "required_tag_count" in os_:
+            try:
+                int(os_.get("required_tag_count", 0))
+            except Exception:
+                return False
+
+        ep = ext.get("executor_policy", {})
         if not isinstance(ep, dict):
+            return False
+        w = ep.get("weights", {})
+        if not isinstance(w, dict):
+            return False
+        for k in ["core", "queue", "objective_remaining", "reject"]:
+            if k not in w:
+                return False
+        tb = ep.get("tie_break", [])
+        if not isinstance(tb, list) or len(tb) != 3:
             return False
 
         return True
@@ -452,18 +469,23 @@ class AnchorSystem:
             }
             ext["command_queue"].append(env)
 
-            # optional: if objective is TASK_SET_V1, allow queueing to also declare requirement (unique)
-            os_ = ext.get("objective_spec", {})
-            tr = ext.get("task_registry", {})
-            if isinstance(os_, dict) and str(os_.get("type", "NONE")) == "TASK_SET_V1" and isinstance(tr, dict):
-                req = list(tr.get("required", []))
-                if task_id not in req:
-                    req.append(task_id)
-                    tr["required"] = req
-                os_req = list(os_.get("required_task_ids", [])) if isinstance(os_.get("required_task_ids", []), list) else []
-                if task_id not in os_req:
-                    os_req.append(task_id)
-                    os_["required_task_ids"] = os_req
+            # Optional: allow explicit declare_required only (prevents implicit objective growth)
+            declare_required = bool(payload.get("declare_required", False))
+            if not declare_required:
+                declare_required = bool(ext.get("runtime_parameters", {}).get("allow_queue_to_declare_required", False))
+
+            if declare_required:
+                os_ = ext.get("objective_spec", {})
+                tr = ext.get("task_registry", {})
+                if isinstance(os_, dict) and str(os_.get("type", "NONE")) == "TASK_SET_V1" and isinstance(tr, dict):
+                    req = list(tr.get("required", []))
+                    if task_id not in req:
+                        req.append(task_id)
+                        tr["required"] = req
+                    os_req = list(os_.get("required_task_ids", [])) if isinstance(os_.get("required_task_ids", []), list) else []
+                    if task_id not in os_req:
+                        os_req.append(task_id)
+                        os_["required_task_ids"] = os_req
 
         elif verb == "QUEUE_CORE_ACTION":
             action = str(payload.get("action", ""))
@@ -510,6 +532,30 @@ class AnchorSystem:
             )
 
         return "OK" if self._type_ok() else "DIVERGENCE"
+
+    # ---------------- replay helper (intent_log -> same trace) ----------------
+    def apply_intent_record(self, rec: Dict[str, Any]) -> str:
+        if not isinstance(rec, dict):
+            return "REJECT"
+
+        payload = rec.get("payload", {})
+        if payload is None:
+            payload = {}
+        if not isinstance(payload, dict):
+            payload = {"value": payload}
+
+        verb = str(rec.get("verb", "NOP"))
+        raw = str(payload.get("_raw_verb", ""))
+
+        verb2 = raw if raw else verb
+
+        pkt = {
+            "observer_id": rec.get("observer_id", self.owner),
+            "nonce": rec.get("nonce", ""),
+            "intent": {"verb": verb2, "payload": payload},
+            "signature": rec.get("signature", ""),
+        }
+        return self.apply_intent_packet(pkt)
 
     # ---------------- 4 canonical actions (core only) ----------------
     def external_disturbance(self) -> str:
@@ -573,11 +619,11 @@ class AnchorSystem:
     # ---------------- EntropyProxy (V2, key-sealed) ----------------
     def _policy_weights(self) -> Dict[str, Decimal]:
         ep = self.extensions.get("executor_policy", {})
-        w_raw = dict(ep.get("weights", {}))
+        w_raw = dict(ep.get("weights", {})) if isinstance(ep, dict) else {}
 
         # runtime override (optional): runtime_parameters.policy_weights
         rp = self.extensions.get("runtime_parameters", {})
-        pw = rp.get("policy_weights")
+        pw = rp.get("policy_weights") if isinstance(rp, dict) else None
         if isinstance(pw, dict):
             for k in ["core", "queue", "objective_remaining", "reject"]:
                 if k in pw:
@@ -592,7 +638,11 @@ class AnchorSystem:
 
     def _tie_break_order(self) -> List[str]:
         ep = self.extensions.get("executor_policy", {})
-        tb = ep.get("tie_break", ["EXECUTE_HEAD", "AUTORESOLVE_CHAOS", "IDLE"])
+        tb = ep.get("tie_break", ["EXECUTE_HEAD", "AUTORESOLVE_CHAOS", "IDLE"]) if isinstance(ep, dict) else [
+            "EXECUTE_HEAD",
+            "AUTORESOLVE_CHAOS",
+            "IDLE",
+        ]
         if isinstance(tb, list) and len(tb) == 3:
             return [str(x) for x in tb]
         return ["EXECUTE_HEAD", "AUTORESOLVE_CHAOS", "IDLE"]
@@ -652,7 +702,22 @@ class AnchorSystem:
 
     # ---------------- candidate simulation (1-step lookahead) ----------------
     def _simulate_execute_head(self) -> Dict[str, Any]:
-        q = self.extensions["command_queue"]
+        q = self.extensions.get("command_queue", [])
+        if not isinstance(q, list) or len(q) == 0:
+            completed, cbt = self._current_completed_sets()
+            os_ = self.extensions.get("objective_spec", {})
+            osd = os_ if isinstance(os_, dict) else {}
+            obj_rem = self._objective_remaining(osd, completed, cbt)
+            return {
+                "type": "EXECUTE_HEAD",
+                "kind": "NOTE",
+                "status": "REJECT",
+                "core_entropy_after": _core_entropy_for_state(self.world_state),
+                "queue_len_after": 0,
+                "objective_remaining_after": obj_rem,
+                "detail": {"reason": "empty_or_invalid_queue"},
+            }
+
         env = q[0]
         kind = str(env.get("kind", "TASK"))
         payload = env.get("payload", {})
@@ -792,9 +857,10 @@ class AnchorSystem:
         os_ = self.extensions.get("objective_spec", {})
         osd = os_ if isinstance(os_, dict) else {}
         obj_rem = self._objective_remaining(osd, completed, cbt)
-        qlen = len(self.extensions["command_queue"])
 
-        # selector guarantees chaos/disconnected when this candidate is included
+        q = self.extensions.get("command_queue", [])
+        qlen = len(q) if isinstance(q, list) else 0
+
         if self.claimant_id == self.owner:
             sim = self._simulate_core_action("AnchorRestoration", {})
             status = "OK" if sim.result == "RECOVERED" else ("NOOP" if sim.result == "NOOP" else "REJECT")
@@ -805,7 +871,17 @@ class AnchorSystem:
                 "core_entropy_after": int(sim.entropy),
                 "queue_len_after": qlen,
                 "objective_remaining_after": obj_rem,
-                "detail": {"action": "AnchorRestoration", "result": sim.result, "core_after": self.core_snapshot()},
+                "detail": {
+                    "action": "AnchorRestoration",
+                    "result": sim.result,
+                    "core_after": {
+                        "STATE": sim.world_state,
+                        "anchor_connection": sim.anchor_connection,
+                        "entropy": sim.entropy,
+                        "claimant": sim.claimant_id,
+                        "is_dead": sim.is_dead,
+                    },
+                },
             }
 
         sim = self._simulate_core_action("TotalCollapse", {})
@@ -817,7 +893,17 @@ class AnchorSystem:
             "core_entropy_after": int(sim.entropy),
             "queue_len_after": qlen,
             "objective_remaining_after": obj_rem,
-            "detail": {"action": "TotalCollapse", "result": sim.result, "core_after": self.core_snapshot()},
+            "detail": {
+                "action": "TotalCollapse",
+                "result": sim.result,
+                "core_after": {
+                    "STATE": sim.world_state,
+                    "anchor_connection": sim.anchor_connection,
+                    "entropy": sim.entropy,
+                    "claimant": sim.claimant_id,
+                    "is_dead": sim.is_dead,
+                },
+            },
         }
 
     def _simulate_idle(self) -> Dict[str, Any]:
@@ -826,23 +912,40 @@ class AnchorSystem:
         osd = os_ if isinstance(os_, dict) else {}
         obj_rem = self._objective_remaining(osd, completed, cbt)
 
+        q = self.extensions.get("command_queue", [])
+        qlen = len(q) if isinstance(q, list) else 0
+
         return {
             "type": "IDLE",
             "kind": "NOTE",
             "status": "NOOP",
             "core_entropy_after": _core_entropy_for_state(self.world_state),
-            "queue_len_after": len(self.extensions["command_queue"]),
+            "queue_len_after": qlen,
             "objective_remaining_after": obj_rem,
             "detail": {},
         }
 
     def _select_candidate(self, autoresolve_chaos: bool) -> Dict[str, Any]:
-        cands: List[Dict[str, Any]] = []
-
         in_chaos = (self.world_state == "Chaos" and self.anchor_connection is False)
 
-        # Queue present => do not include IDLE
-        if self.extensions["command_queue"]:
+        # ---- Resolution gate (WF(Resolution) 대응) ----
+        # Chaos/disconnected + non-canonical claimant => force AUTORESOLVE (collapse) on next tick
+        if autoresolve_chaos and in_chaos and (self.claimant_id != self.owner):
+            c = self._simulate_autoresolve_chaos()
+            c["proxy"] = self._entropy_proxy(
+                core_entropy_after=int(c["core_entropy_after"]),
+                queue_len_after=int(c["queue_len_after"]),
+                objective_remaining_after=int(c["objective_remaining_after"]),
+                status=str(c["status"]),
+            )
+            return c
+
+        cands: List[Dict[str, Any]] = []
+
+        q = self.extensions.get("command_queue", [])
+        q_has_items = isinstance(q, list) and len(q) > 0
+
+        if q_has_items:
             cands.append(self._simulate_execute_head())
             if autoresolve_chaos and in_chaos:
                 cands.append(self._simulate_autoresolve_chaos())
@@ -881,11 +984,22 @@ class AnchorSystem:
             return eff
 
         choice = self._select_candidate(autoresolve_chaos=autoresolve_chaos)
-        proxy_str = str(choice["proxy"])
+        proxy_str = str(choice.get("proxy", ""))
 
-        # execute chosen candidate
         if choice["type"] == "EXECUTE_HEAD":
-            env = ext["command_queue"].pop(0)
+            q = ext.get("command_queue", [])
+            if not isinstance(q, list) or len(q) == 0:
+                eff = {
+                    "nonce": "",
+                    "t": t,
+                    "kind": "NOTE",
+                    "status": "REJECT",
+                    "detail": {"proxy": proxy_str, "selected": "EXECUTE_HEAD", "reason": "empty_or_invalid_queue"},
+                }
+                ext["effects_log"].append(eff)
+                return eff
+
+            env = q.pop(0)
             kind = str(env.get("kind", "TASK"))
             nonce = str(env.get("nonce", ""))
             payload = env.get("payload", {})
@@ -893,7 +1007,7 @@ class AnchorSystem:
             eff = {
                 "nonce": nonce,
                 "t": t,
-                "kind": kind,
+                "kind": kind if kind in {"TASK", "CORE_ACTION", "NOTE"} else "NOTE",
                 "status": "NOOP",
                 "detail": {"proxy": proxy_str, "selected": "EXECUTE_HEAD"},
             }
@@ -983,7 +1097,6 @@ class AnchorSystem:
             ext["effects_log"].append(eff)
             return eff
 
-        # IDLE
         eff = {
             "nonce": "",
             "t": t,
@@ -1023,16 +1136,23 @@ class AnchorSystem:
         )
         if not include_extensions:
             return core
+
         ext = self.extensions
+        os_ = ext.get("objective_spec", {})
+        otype = os_.get("type", "") if isinstance(os_, dict) else ""
+
+        q = ext.get("command_queue", [])
+        qlen = len(q) if isinstance(q, list) else 0
+
         return (
             core
             + " || "
             + f"objective={ext.get('runtime_objective','')} | "
-            + f"objective_type={ext.get('objective_spec',{}).get('type','')} | "
+            + f"objective_type={otype} | "
             + f"objective_remaining={self.objective_remaining()} | "
-            + f"queue={len(ext.get('command_queue',[]))} | "
-            + f"effects={len(ext.get('effects_log',[]))} | "
-            + f"notes={len(ext.get('notes',[]))} | "
+            + f"queue={qlen} | "
+            + f"effects={len(ext.get('effects_log',[])) if isinstance(ext.get('effects_log',[]), list) else 0} | "
+            + f"notes={len(ext.get('notes',[])) if isinstance(ext.get('notes',[]), list) else 0} | "
             + f"tick={self._now_tick()}"
         )
 
@@ -1078,3 +1198,10 @@ if __name__ == "__main__":
     print("[tick1]", sim.tick(), sim.status(include_extensions=True))
     print("[tick2]", sim.tick(), sim.status(include_extensions=True))
     print("[tick3]", sim.tick(), sim.status(include_extensions=True))
+
+    # 4) chaos closure demo: non-canonical claimant in chaos collapses next tick
+    sim2 = AnchorSystem(claimants=allowed)
+    sim2.external_disturbance()
+    sim2.change_claimant_in_chaos("Imposter_AI_001")
+    print("[chaos-demo pre]", sim2.status(include_extensions=True))
+    print("[chaos-demo tick]", sim2.tick(), sim2.status(include_extensions=True))
