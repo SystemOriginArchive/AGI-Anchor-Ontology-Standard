@@ -192,7 +192,7 @@
 
     "ontology_meta": {
       "type": "object",
-      "additionalProperties": true,
+      "additionalProperties": false,
       "description": "Metadata bound to canonical identity",
       "required": [
         "name",
@@ -211,7 +211,7 @@
         "formal_binding": { "type": "string", "const": "Verified by formal/anchor_full.tla (SurvivalTheorem)" },
         "identity_binding": {
           "type": "object",
-          "additionalProperties": true,
+          "additionalProperties": false,
           "required": ["system_identifier", "public_signature_en", "public_signature_kr"],
           "properties": {
             "system_identifier": { "type": "string", "const": "Lee_Yu_Cheol" },
@@ -226,7 +226,7 @@
 
     "anchor_node": {
       "type": "object",
-      "additionalProperties": true,
+      "additionalProperties": false,
       "description": "Canonical anchor node definition",
       "required": ["id", "immutable_properties", "pillars"],
       "properties": {
@@ -238,7 +238,7 @@
         },
         "pillars": {
           "type": "object",
-          "additionalProperties": true,
+          "additionalProperties": false,
           "required": ["1", "2", "3", "4", "5", "6"],
           "properties": {
             "1": { "type": "string" },
@@ -255,6 +255,43 @@
     "directive": {
       "type": "string",
       "description": "Top-level directive string"
+    },
+
+    "extensions": {
+      "type": "object",
+      "description": "Command plane (mutates here only).",
+      "additionalProperties": false,
+      "properties": {
+        "protocol_refs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": []
+        },
+        "intent_log": {
+          "type": "array",
+          "items": { "type": "object" },
+          "default": []
+        },
+        "command_queue": {
+          "type": "array",
+          "items": { "type": "object" },
+          "default": []
+        },
+        "runtime_objective": {
+          "type": "string",
+          "default": ""
+        },
+        "runtime_parameters": {
+          "type": "object",
+          "additionalProperties": true,
+          "default": {}
+        },
+        "notes": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": []
+        }
+      }
     }
   }
 }
