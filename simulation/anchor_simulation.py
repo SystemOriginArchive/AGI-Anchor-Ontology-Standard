@@ -21,8 +21,9 @@ v1.0.4+ runtime fixes (simulation-only):
 - tick counter is extensions.runtime_parameters["tick"] (monotone), independent from core time_cycle
 - queue present => IDLE is not a candidate (prevents queue stall appearance)
 
-v1.0.4+ semantic fix:
-- task_registry.completed is uniqueItems => completed_by_tag increments ONLY when a task_id is newly completed
+v1.0.4+ semantic closure:
+- task_registry.completed is treated as set (uniqueItems)
+- completed_by_tag increments ONLY when a task_id is newly completed
   (keeps TAG_TARGET_V1 semantics consistent with schema uniqueness)
 """
 
@@ -414,8 +415,8 @@ class AnchorSystem:
         rec = {
             "observer_id": self.owner,
             "nonce": nonce,
-            "verb": verb_for_log,
-            "payload": payload,
+            "verb": verb_for_log,   # schema-safe verb enum
+            "payload": payload,     # carries _raw_verb if needed
             "signature": signature,
             "t": self._now_tick(),
         }
@@ -427,7 +428,7 @@ class AnchorSystem:
         self.extensions["intent_log"].append(rec)
 
         ext = self.extensions
-        verb = raw_verb
+        verb = raw_verb  # routing uses raw (may be unknown)
 
         if verb == "NOP":
             pass
@@ -974,6 +975,7 @@ class AnchorSystem:
         q = self.extensions.get("command_queue", [])
         q_has_items = isinstance(q, list) and len(q) > 0
 
+        # queue-aware candidate set
         if q_has_items:
             cands.append(self._simulate_execute_head())
             if autoresolve_chaos and in_chaos:
@@ -1066,6 +1068,7 @@ class AnchorSystem:
                             comp.append(task_id)
                         tr["completed"] = comp
 
+                        # schema-consistent tag counting (unique completion only)
                         if tag != "" and newly_added:
                             cbt = dict(tr.get("completed_by_tag", {}))
                             cbt[tag] = int(cbt.get(tag, 0)) + 1
