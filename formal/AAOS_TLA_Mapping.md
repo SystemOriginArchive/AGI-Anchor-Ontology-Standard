@@ -75,8 +75,8 @@ Let `Q = extensions.command_queue`.
    - consumes exactly one envelope from `command_queue` (FIFO)
 2) `AUTORESOLVE_CHAOS` (only if Chaos/disconnected)
    - resolves deterministically:
-     - `claimant_id == Observer` → `AnchorRestoration`
-     - `claimant_id != Observer` → `TotalCollapse`
+     - `claimant_id == ObserverID` → `AnchorRestoration`
+     - `claimant_id != ObserverID` → `TotalCollapse`
 
 `IDLE` is not a candidate when the queue is non-empty.
 
