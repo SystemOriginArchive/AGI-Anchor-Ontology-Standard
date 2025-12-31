@@ -86,16 +86,21 @@ Commit rule (atomic)
 If a packet is REJECTED, it MUST NOT be committed to extensions.nonce_registry
 and MUST NOT be appended to extensions.intent_log[].
 
+---
 5) Verb Set (extensions-only)
+
 Valid verbs (must match schema enum exactly):
 
 [NOP]
+
 no-op (log only)
 
 [NOTE_APPEND]
+
 appends payload.text (or stringified payload) to extensions.notes[]
 
 [SET_OBJECTIVE]
+
 sets extensions.runtime_objective (optional mirror string)
 
 sets extensions.objective_spec (typed semantics)
@@ -103,154 +108,32 @@ sets extensions.objective_spec (typed semantics)
 syncs extensions.task_registry.required when type is TASK_SET_V1
 
 [SET_PARAMETER]
+
 mutates extensions.runtime_parameters only
 
 [QUEUE_TASK]
+
 pushes a TASK envelope into extensions.command_queue[]
 
 requires payload.task_id
 
 [QUEUE_CORE_ACTION]
+
 pushes a CORE_ACTION envelope into extensions.command_queue[]
 
 [EXPORT_STATE]
+
 emits a snapshot (implementation-defined) into extensions.notes[]
 or an export channel
 
 Unknown verbs
+
 MUST be normalized as a TASK envelope with:
 
 payload.task_id = "UNKNOWN_VERB:<raw_verb>"
 
 6) Typed Command Envelopes (extensions.command_queue[])
+
 extensions.command_queue[] contains ONLY CommandEnvelope records.
 
 Generic Envelope Schema (conceptual)
-json
-코드 복사
-{
-  "kind": "TASK",
-  "nonce": "nonce-0001",
-  "t": 0,
-  "payload": {}
-}
-1. TASK Envelope
-json
-코드 복사
-{
-  "kind": "TASK",
-  "nonce": "nonce-0001",
-  "t": 0,
-  "payload": {
-    "task_id": "T1",
-    "tag": "",
-    "params": {}
-  }
-}
-2. NOTE Envelope
-json
-코드 복사
-{
-  "kind": "NOTE",
-  "nonce": "nonce-0002",
-  "t": 0,
-  "payload": {
-    "text": "..."
-  }
-}
-3. CORE_ACTION Envelope
-json
-코드 복사
-{
-  "kind": "CORE_ACTION",
-  "nonce": "nonce-0003",
-  "t": 0,
-  "payload": {
-    "action": "ExternalDisturbance",
-    "args": {}
-  }
-}
-Allowed CORE_ACTION values
-ExternalDisturbance
-
-ChangeClaimantInChaos
-
-AnchorRestoration
-
-TotalCollapse
-
-7) Objective Spec DSL (Semantic Closure)
-extensions.objective_spec.type ∈:
-
-NONE
-
-TASK_SET_V1
-
-TAG_TARGET_V1
-
-TASK_SET_V1
-requires: required_task_ids[] (unique)
-
-satisfied when:
-required_task_ids ⊆ task_registry.completed[]
-
-objective remaining:
-|required − completed|
-
-TAG_TARGET_V1
-requires: required_tag, required_tag_count
-
-satisfied when:
-completed_by_tag[required_tag] ≥ required_tag_count
-
-objective remaining:
-max(0, required_tag_count − completed_by_tag[required_tag])
-
-Task completion semantics
-executing a TASK envelope adds task_id to completed[]
-
-set semantics: duplicates ignored
-
-completed_by_tag[tag] increments ONLY when a task is newly completed
-
-8) B-Closure (EntropyProxy argmin V2)
-Policy Configuration
-json
-코드 복사
-{
-  "selection_rule": "ENTROPY_ARGMIN_V2",
-  "weights": {
-    "core": 1.0,
-    "queue": 10.0,
-    "objective_remaining": 500.0,
-    "reject": 500.0
-  },
-  "tie_break": ["EXECUTE_HEAD", "AUTORESOLVE_CHAOS", "IDLE"]
-}
-Candidate set per tick (queue-aware)
-Condition A: len(command_queue) > 0
-
-EXECUTE_HEAD
-
-AUTORESOLVE_CHAOS
-(only if world_state == Chaos and anchor_connection == FALSE)
-
-Condition B: len(command_queue) == 0
-
-AUTORESOLVE_CHAOS
-(only if world_state == Chaos and anchor_connection == FALSE)
-
-IDLE
-
-EntropyProxy (1-step lookahead)
-makefile
-코드 복사
-EntropyProxy =
-  (w_core * core_entropy_after) +
-  (w_queue * queue_len_after) +
-  (w_obj   * objective_remaining_after) +
-  (w_reject * reject_term)
-Selection Logic
-Choose candidate with minimal EntropyProxy
-
-Ties broken deterministically by executor_policy.tie_break
