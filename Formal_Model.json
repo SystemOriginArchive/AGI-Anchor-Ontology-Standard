@@ -75,10 +75,44 @@
 
   "extensions": {
     "protocol_refs": ["spec/Observer_Override_Protocol.md"],
+
+    "nonce_registry": {
+      "last_nonce": "",
+      "seen": []
+    },
+
     "intent_log": [],
     "command_queue": [],
+    "effects_log": [],
+
     "runtime_objective": "",
+
+    "objective_spec": {
+      "type": "NONE",
+      "required_task_ids": [],
+      "required_tag": "",
+      "required_tag_count": 0
+    },
+
+    "task_registry": {
+      "required": [],
+      "completed": [],
+      "completed_by_tag": {}
+    },
+
     "runtime_parameters": {},
+
+    "executor_policy": {
+      "selection_rule": "ENTROPY_ARGMIN_V2",
+      "weights": {
+        "core": 1.0,
+        "queue": 10.0,
+        "objective_remaining": 500.0,
+        "reject": 500.0
+      },
+      "tie_break": ["EXECUTE_HEAD", "AUTORESOLVE_CHAOS", "IDLE"]
+    },
+
     "notes": []
   }
 }
