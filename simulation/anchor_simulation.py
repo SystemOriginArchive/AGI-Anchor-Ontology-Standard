@@ -1,3 +1,27 @@
+"""
+AAOS Simulation (v1.0.4+)
+
+Core:
+- 4 states / 4 actions only (mirrors TLA)
+- core actions unchanged
+
+Extensions (B-closure, semantics-complete):
+- objective_spec (typed)
+- task_registry (required/completed + tag counts)
+- EntropyProxy includes objective_remaining computed from objective_spec + task_registry
+- tick() selects argmin of EntropyProxy with deterministic tie-break
+
+Key sealing:
+- EntropyProxy uses executor_policy.weights keys ONLY:
+  - core, queue, objective_remaining, reject
+(no aliases)
+
+v1.0.4+ runtime fixes (simulation-only):
+- intent_log.verb is schema-safe (enum only); raw verb preserved in payload["_raw_verb"] when needed
+- tick counter is extensions.runtime_parameters["tick"] (monotone), independent from core time_cycle
+- queue present => IDLE is not a candidate (prevents queue stall appearance)
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
