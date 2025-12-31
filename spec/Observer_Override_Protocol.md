@@ -61,7 +61,7 @@ Intent packets do NOT execute actions directly; execution occurs **only** via `e
 
 Minimal canonical packet form (runtime input):
 
-
+---
 {
   "observer_id": "Lee_Yu_Cheol",
   "nonce": "nonce-0001",
@@ -78,7 +78,7 @@ Minimal canonical packet form (runtime input):
   "signature": ""
 }
 
-
+---
 
 Nonce rule:
 - Nonce MUST be strictly increasing (lexical)
