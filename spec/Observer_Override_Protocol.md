@@ -52,16 +52,19 @@ No other fields are modified by OOP.
 
 ## 4) Intent Packet (Canonical)
 
-An intent packet is a runtime input that is:
-1) validated (identity + nonce),
-2) appended to `extensions.intent_log[]`,
-3) optionally projected into `extensions.*` and/or `extensions.command_queue[]`.
+## 4) Intent Packet (Canonical)
 
-Intent packets do NOT execute actions directly;  
+An intent packet is a runtime input that is:
+1. validated (identity + nonce),
+2. appended to `extensions.intent_log[]`,
+3. optionally projected into `extensions.*` and/or `extensions.command_queue[]`.
+
+Intent packets do NOT execute actions directly;
 execution occurs **only** via `extensions.command_queue[]` envelopes.
 
 Minimal canonical packet form (runtime input):
 
+```json
 {
   "observer_id": "Lee_Yu_Cheol",
   "nonce": "nonce-0001",
@@ -77,7 +80,6 @@ Minimal canonical packet form (runtime input):
   },
   "signature": ""
 }
-
 
 
 Nonce rule:
