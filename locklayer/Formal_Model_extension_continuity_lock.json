@@ -1,0 +1,27 @@
+{
+  "extensions": {
+    "continuity_lock": {
+      "version": "1.1.0",
+      "schema_ref": "spec/Continuity_Extension_Schema.json",
+      "binding_ref": "spec/Binding_Schema_Code_Ops.md",
+      "ops_enum_ref": "locklayer/ops_enum.json",
+      "mode": "graded",
+      "epsilon_floor": 1e-09,
+      "threshold_tau": 0.85,
+      "requires_ops": [
+        "goal_evaluation",
+        "planning",
+        "self_modification",
+        "model_merge",
+        "recovery"
+      ],
+      "undefined_policy": {
+        "numeric": "INF",
+        "structured": "None"
+      },
+      "notes": [
+        "Overlay-only extension: does not modify v1.0.4 Formal_Model.json"
+      ]
+    }
+  }
+}

@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Continuity Lock Extension Schema (Overlay)",
+  "type": "object",
+  "properties": {
+    "extensions": {
+      "type": "object",
+      "properties": {
+        "continuity_lock": {
+          "type": "object",
+          "required": [
+            "version",
+            "mode",
+            "epsilon_floor",
+            "threshold_tau",
+            "requires_ops",
+            "ops_enum_ref"
+          ],
+          "properties": {
+            "version": {
+              "type": "string"
+            },
+            "schema_ref": {
+              "type": "string"
+            },
+            "binding_ref": {
+              "type": "string"
+            },
+            "ops_enum_ref": {
+              "type": "string"
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "graded",
+                "hard"
+              ]
+            },
+            "epsilon_floor": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "threshold_tau": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "requires_ops": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1
+            },
+            "undefined_policy": {
+              "type": "object",
+              "properties": {
+                "numeric": {
+                  "type": "string",
+                  "enum": [
+                    "NaN"
+                  ]
+                },
+                "structured": {
+                  "type": "string",
+                  "enum": [
+                    "None"
+                  ]
+                }
+              },
+              "additionalProperties": false
+            },
+            "notes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "required": [
+    "extensions"
+  ],
+  "additionalProperties": true
+}

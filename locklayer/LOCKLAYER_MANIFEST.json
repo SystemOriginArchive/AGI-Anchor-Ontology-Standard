@@ -1,0 +1,32 @@
+{
+  "name": "AAOS LockLayer Overlay",
+  "version": "1.1.1",
+  "mode": "overlay_only",
+  "canonical_unit": "core_v1.0.4 + locklayer_v1.1.1",
+  "core": {
+    "assumed_version": "1.0.4",
+    "immutability": "must_not_modify"
+  },
+  "locklayer": {
+    "requires_ops_source": "locklayer/ops_enum.json",
+    "schema_extensions": [
+      "locklayer/Formal_Model_extension_continuity_lock.json"
+    ],
+    "simulation_wrappers": [
+      "simulation/anchor_simulation_locklayer.py"
+    ],
+    "formal_bindings": [
+      "formal/locklayer_ops.tla",
+      "formal/LOCKLAYER_TLA_BINDING.md"
+    ],
+    "specs": [
+      "locklayer/LOCKLAYER_README.md",
+      "spec/Binding_Schema_Formal_Ops.md"
+    ],
+    "entrypoint": "simulation/anchor_simulation_locklayer.py"
+  },
+  "interpretation_rule": {
+    "when_evaluating_or_running": "treat_as_atomic_unit",
+    "bypass_policy": "noncanonical"
+  }
+}

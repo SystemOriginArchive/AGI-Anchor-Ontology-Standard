@@ -1,0 +1,16 @@
+{
+  "enabled": true,
+  "time_unit": "seconds",
+  "lambda_delay": 1.0,
+  "nonlinear": {
+    "type": "exp",
+    "k": 0.001
+  },
+  "applies_to_ops": [
+    "goal_evaluation",
+    "planning",
+    "self_modification",
+    "model_merge",
+    "recovery"
+  ]
+}
