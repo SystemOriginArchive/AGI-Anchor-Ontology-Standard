@@ -1,17 +1,5 @@
 """AAOS Continuity Lock Overlay (v1.1.1)
 
-# Optional extension configs (overlay-only)
-_TIME_CFG_PATH = os.path.join(os.path.dirname(__file__), "..", "locklayer", "time_penalty.json")
-_STATE_CFG_PATH = os.path.join(os.path.dirname(__file__), "..", "locklayer", "state_cost.json")
-_EXT_CFG_PATH   = os.path.join(os.path.dirname(__file__), "..", "locklayer", "external_interaction.json")
-
-def _load_json_if_exists(p):
-    try:
-        with open(p, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except FileNotFoundError:
-        return {"enabled": False}
-
 Non-destructive wrapper around AAOS v1.0.4 `AnchorSystem`.
 - Does NOT modify core simulation code.
 - Enforces continuity gating at canonical `requires_ops` locations.
@@ -25,15 +13,28 @@ from __future__ import annotations
 
 import json
 import os
-import math
 import hashlib
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from simulation.anchor_simulation import AnchorSystem  # v1.0.4 core
 
 
 def _repo_root() -> str:
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+# Optional extension configs (overlay-only)
+_TIME_CFG_PATH = os.path.join(os.path.dirname(__file__), "..", "locklayer", "time_penalty.json")
+_STATE_CFG_PATH = os.path.join(os.path.dirname(__file__), "..", "locklayer", "state_cost.json")
+_EXT_CFG_PATH = os.path.join(os.path.dirname(__file__), "..", "locklayer", "external_interaction.json")
+
+
+def _load_json_if_exists(p: str) -> Dict[str, Any]:
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {"enabled": False}
 
 
 def _load_requires_ops() -> list[str]:
@@ -47,8 +48,21 @@ def _load_requires_ops() -> list[str]:
 
 
 REQUIRES_OPS = _load_requires_ops()
-TAU_DEFAULT = 0.85
-EPS_DEFAULT = 1e-9
+
+
+# --- v1.1.1: load continuity_lock overlay config (x_root as cost origin) ---
+def _load_continuity_lock_cfg() -> Dict[str, Any]:
+    path = os.path.join(_repo_root(), "locklayer", "Formal_Model_extension_continuity_lock.json")
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    ext = (data.get("extensions") or {}).get("continuity_lock") or {}
+    return ext if isinstance(ext, dict) else {}
+
+
+_CONT_CFG = _load_continuity_lock_cfg()
+XROOT_DEFAULT = str(_CONT_CFG.get("x_root", "AAOS_CREATOR_ANCHOR_001_LEE_YU_CHEOL"))
+TAU_DEFAULT = float(_CONT_CFG.get("threshold_tau", 0.85))
+EPS_DEFAULT = float(_CONT_CFG.get("epsilon_floor", 1e-9))
 
 
 def _canon_payload(packet: Dict[str, Any]) -> bytes:
@@ -76,25 +90,29 @@ def _fidelity(pi_prev_claimed: str, pi_prev_actual: str) -> float:
 class AnchorSystemLocked(AnchorSystem):
     """Overlay system enforcing continuity lock at canonical operations."""
 
-        def __init__(self, *, tau: float = TAU_DEFAULT, epsilon: float = EPS_DEFAULT):
-        # IMPORTANT:
-        # - In v1.1.1, the cost origin is x_root defined in the locklayer formal model (JSON).
-        # - We do NOT treat "owner" as the cost origin.
-        # - Keep core initialization maximally compatible with AAOS v1.0.4.
+    def __init__(self, *, tau: float = TAU_DEFAULT, epsilon: float = EPS_DEFAULT):
+        # v1.1.1: x_root is the cost origin loaded from the overlay formal model JSON.
+        self._x_root = XROOT_DEFAULT
+
+        # Keep core init maximally compatible with AAOS v1.0.4
         try:
             super().__init__()
         except TypeError:
-            # If core requires a different signature in some forks, fall back gracefully.
+            # fallback for forks that require claimants
             super().__init__(claimants=["LEE_YU_CHEOL"])
 
-        self._lock = {
-            "pi": "",              # current chain head
-            "lock_ok": False,      # boolean gate
-            "fidelity": 0.0,       # [0,1]
+        self._lock: Dict[str, Any] = {
+            "pi": "",                 # current chain head
+            "lock_ok": False,         # boolean gate
+            "fidelity": 0.0,          # [0,1]
             "tau": float(tau),
             "epsilon": float(epsilon),
-        }
 
+            # v1.1.1 additions
+            "x_root": self._x_root,   # cost origin (external creator intent anchor)
+            "source_last": "",        # last seen intent source
+            "divergence_cost": 0.0,   # accumulated divergence from x_root
+        }
 
     def lock_state(self) -> Dict[str, Any]:
         return dict(self._lock)
@@ -109,18 +127,26 @@ class AnchorSystemLocked(AnchorSystem):
         return None
 
     def apply_intent_packet(self, packet: Dict[str, Any]) -> bool:
+        # v1.1.1: divergence cost from x_root (cost origin)
+        src = str(packet.get("source", ""))
+        self._lock["source_last"] = src
+        if src != self._x_root:
+            self._lock["divergence_cost"] += 1.0
+
         # Expect packet carries claimed previous pi
         claimed_prev = packet.get("pi_prev", "")
         actual_prev = self._lock["pi"]
         f = _fidelity(claimed_prev, actual_prev)
         self._lock["fidelity"] = f
         self._lock["lock_ok"] = (f >= self._lock["tau"])
+
         # Only advance pi when lock is OK (continuity maintained)
         if self._lock_ok():
             self._lock["pi"] = _pi_next(actual_prev, packet)
             return super().apply_intent_packet(packet)
+
         # Record that an intent arrived but continuity failed (core log still allowed)
-        super().apply_intent_record({"intent": packet.get("intent",""), "continuity": "FAILED"})
+        super().apply_intent_record({"intent": packet.get("intent", ""), "continuity": "FAILED"})
         return False
 
     # --- Canonical gated ops ---
@@ -128,7 +154,6 @@ class AnchorSystemLocked(AnchorSystem):
     def goal_evaluation(self) -> float:
         if not self._lock_ok():
             return self._undefined_num()
-        # objective_remaining is an existing v1.0.4 method/property
         try:
             return float(self.objective_remaining())
         except Exception:
@@ -143,12 +168,16 @@ class AnchorSystemLocked(AnchorSystem):
             return self._undefined_obj()
 
     def self_modification(self, *args, **kwargs):
-        # Placeholder: no core self-mod in v1.0.4 simulation
-        return self._undefined_obj() if not self._lock_ok() else {"status":"noop", "note":"v1.0.4 sim has no self-mod"} 
+        return self._undefined_obj() if not self._lock_ok() else {
+            "status": "noop",
+            "note": "v1.0.4 sim has no self-mod",
+        }
 
     def model_merge(self, *args, **kwargs):
-        # Placeholder: no core merge in v1.0.4 simulation
-        return self._undefined_obj() if not self._lock_ok() else {"status":"noop", "note":"v1.0.4 sim has no model merge"} 
+        return self._undefined_obj() if not self._lock_ok() else {
+            "status": "noop",
+            "note": "v1.0.4 sim has no model merge",
+        }
 
     def recovery(self) -> bool:
         if not self._lock_ok():
@@ -163,14 +192,15 @@ def _time_penalty(delta_t, cfg):
     if not cfg.get("enabled", False):
         return 0.0
     lam = float(cfg.get("lambda_delay", 1.0))
-    nonlin = cfg.get("nonlinear", {"type":"linear"})
+    nonlin = cfg.get("nonlinear", {"type": "linear"})
     if nonlin.get("type") == "exp":
-        k = float(nonlin.get("k", 0.0))
         import math
+        k = float(nonlin.get("k", 0.0))
         g = math.exp(k * float(delta_t))
     else:
         g = 1.0
     return lam * float(delta_t) * g
+
 
 def _state_cost(state, cfg):
     if not cfg.get("enabled", False):
@@ -180,6 +210,7 @@ def _state_cost(state, cfg):
     for k, w in weights.items():
         total += float(w) * float(state.get(k, 0.0))
     return total
+
 
 def _external_cost(conflict_count, cfg):
     if not cfg.get("enabled", False):
