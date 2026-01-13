@@ -227,6 +227,10 @@ class AnchorSystemLocked(AnchorSystem):
             return self.tick()
         except Exception:
             return self._undefined_obj()
+    
+    # alias to match requires_ops name in specs
+    def planning(self) -> Dict[str, Any] | None:
+        return self.planning_tick()
 
     def self_modification(self, *args, **kwargs):
         return self._undefined_obj() if not self._lock_ok() else {
