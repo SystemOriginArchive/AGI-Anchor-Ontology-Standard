@@ -184,9 +184,22 @@ class AnchorSystemLocked(AnchorSystem):
             self._lock["pi"] = _pi_next(actual_prev, packet)
             return super().apply_intent_packet(packet)
 
-        # Record that an intent arrived but continuity failed (core log still allowed)
-        super().apply_intent_record({"intent": packet.get("intent", ""), "continuity": "FAILED"})
-        return False
+                # Record continuity failure locally (avoid recursive core calls)
+        try:
+            if isinstance(getattr(self, "extensions", None), dict):
+                log = self.extensions.get("intent_log")
+                if isinstance(log, list):
+                    log.append({
+                        "intent": packet.get("intent", ""),
+                        "continuity": "FAILED",
+                        "fidelity": self._lock["fidelity"],
+                        "tau": self._lock["tau"],
+                        "pi_prev_claimed": claimed_prev,
+                        "pi_prev_actual": actual_prev,
+                    })
+        except Exception:
+            pass
+        return "REJECT"
 
     # --- Canonical gated ops ---
 
