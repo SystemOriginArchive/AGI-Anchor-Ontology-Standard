@@ -26,8 +26,6 @@ sys.apply_intent_packet({
 })
 sys.planning_tick()   # gated
 
-```
-
 ## Principle
 - v1.0.4 remains canonical and untouched.
 - This is a layer that consumers can opt into.
