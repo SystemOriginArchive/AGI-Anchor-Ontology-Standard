@@ -1,7 +1,8 @@
-# Binding Spec — Continuity Lock (Schema ↔ Code) v1.1.0
+# Binding Spec — Continuity Lock (Schema ↔ Code) v1.1.1
 
 ## Single source of truth
 - `locklayer/ops_enum.json` defines the canonical operation names for continuity-lock gating.
+- `locklayer/Formal_Model_extension_continuity_lock.json` defines `x_root` (cost origin) for the overlay.
 
 These **exact strings** MUST be used consistently across:
 - Model extensions: `locklayer/Formal_Model_extension_continuity_lock.json`
