@@ -101,6 +101,11 @@ class AnchorSystemLocked(AnchorSystem):
             # fallback for forks that require claimants
             super().__init__(claimants=["LEE_YU_CHEOL"])
 
+        # (1) optional extension configs loaded here (so total_cost can use them)
+        self._time_cfg = _load_json_if_exists(_TIME_CFG_PATH)
+        self._state_cfg = _load_json_if_exists(_STATE_CFG_PATH)
+        self._ext_cfg = _load_json_if_exists(_EXT_CFG_PATH)
+
         self._lock: Dict[str, Any] = {
             "pi": "",                 # current chain head
             "lock_ok": False,         # boolean gate
@@ -125,6 +130,40 @@ class AnchorSystemLocked(AnchorSystem):
 
     def _undefined_obj(self):
         return None
+
+    # (2) total_cost helpers + aggregator (safe defaults; never crash)
+    def _safe_state(self) -> Dict[str, Any]:
+        s = getattr(self, "state", None)
+        if isinstance(s, dict):
+            return s
+        getter = getattr(self, "get_state", None)
+        if callable(getter):
+            try:
+                out = getter()
+                return out if isinstance(out, dict) else {}
+            except Exception:
+                return {}
+        return {}
+
+    def _safe_delta_t(self) -> float:
+        # If you later wire real delta_t, replace this. For now, keep stable.
+        return 0.0
+
+    def _safe_conflict_count(self) -> int:
+        c = getattr(self, "conflict_count", None)
+        if isinstance(c, int):
+            return c
+        return 0
+
+    def total_cost(self) -> float:
+        div = float(self._lock.get("divergence_cost", 0.0))
+        dt = self._safe_delta_t()
+        st = self._safe_state()
+        cc = self._safe_conflict_count()
+        tcost = float(_time_penalty(dt, self._time_cfg))
+        scost = float(_state_cost(st, self._state_cfg))
+        ecost = float(_external_cost(cc, self._ext_cfg))
+        return div + tcost + scost + ecost
 
     def apply_intent_packet(self, packet: Dict[str, Any]) -> bool:
         # v1.1.1: divergence cost from x_root (cost origin)
@@ -155,9 +194,11 @@ class AnchorSystemLocked(AnchorSystem):
         if not self._lock_ok():
             return self._undefined_num()
         try:
-            return float(self.objective_remaining())
+            base = float(self.objective_remaining())
         except Exception:
-            return self._undefined_num()
+            base = self._undefined_num()
+        # (3) fold total_cost into evaluation => low-cost paths become favored
+        return base + float(self.total_cost())
 
     def planning_tick(self) -> Dict[str, Any] | None:
         if not self._lock_ok():
