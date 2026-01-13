@@ -1,4 +1,4 @@
-# LockLayer Overlay v1.1.0 (Non-destructive)
+# LockLayer Overlay v1.1.1 (Non-destructive)
 
 This overlay adds continuity-lock gating without touching AAOS v1.0.4 core files.
 
@@ -10,10 +10,13 @@ This overlay adds continuity-lock gating without touching AAOS v1.0.4 core files
 - `simulation/anchor_simulation_locklayer.py` — wrapper that enforces gating
 
 ## How to use in simulation
+x_root is the fixed external creator intent anchor (cost origin).
+Only intents aligned with x_root converge to minimum cost.
+
 ```python
 from simulation.anchor_simulation_locklayer import AnchorSystemLocked
 
-sys = AnchorSystemLocked(owner="LEE_YU_CHEOL")
+sys = AnchorSystemLocked()
 # Provide intent packets with fields expected by the locklayer (see code)
 sys.apply_intent_packet({"intent":"...", "pi_prev": sys.lock_state()["pi"]})
 sys.planning_tick()   # gated
