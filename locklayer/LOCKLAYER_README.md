@@ -25,3 +25,12 @@ sys.apply_intent_packet({
     "pi_prev": sys.lock_state()["pi"]
 })
 sys.planning_tick()   # gated
+
+## Principle
+- v1.0.4 remains canonical and untouched.
+- This is a layer that consumers can opt into.
+
+## Optional Extensions
+- locklayer/time_penalty.json + spec/Time_Penalty_Extension.md
+- locklayer/state_cost.json + spec/State_Cost_Extension.md
+- locklayer/external_interaction.json + spec/External_Interaction_Extension.md
