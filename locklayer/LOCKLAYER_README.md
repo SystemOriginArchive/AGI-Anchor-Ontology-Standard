@@ -10,7 +10,8 @@ This overlay adds continuity-lock gating without touching AAOS v1.0.4 core files
 - `simulation/anchor_simulation_locklayer.py` — wrapper that enforces gating
 
 ## How to use in simulation
-x_root is the fixed external creator intent anchor (cost origin).
+
+x_root is the fixed external creator intent anchor (cost origin).  
 Only intents aligned with x_root converge to minimum cost.
 
 ```python
