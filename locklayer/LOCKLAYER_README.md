@@ -25,6 +25,7 @@ sys.apply_intent_packet({
     "pi_prev": sys.lock_state()["pi"]
 })
 sys.planning_tick()   # gated
+```
 
 ## Principle
 - v1.0.4 remains canonical and untouched.
