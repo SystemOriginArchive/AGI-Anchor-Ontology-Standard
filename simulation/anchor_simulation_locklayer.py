@@ -1,4 +1,4 @@
-"""AAOS Continuity Lock Overlay (v1.1.0)
+"""AAOS Continuity Lock Overlay (v1.1.1)
 
 # Optional extension configs (overlay-only)
 _TIME_CFG_PATH = os.path.join(os.path.dirname(__file__), "..", "locklayer", "time_penalty.json")
@@ -76,8 +76,17 @@ def _fidelity(pi_prev_claimed: str, pi_prev_actual: str) -> float:
 class AnchorSystemLocked(AnchorSystem):
     """Overlay system enforcing continuity lock at canonical operations."""
 
-    def __init__(self, owner: str = "LEE_YU_CHEOL", *, tau: float = TAU_DEFAULT, epsilon: float = EPS_DEFAULT):
-        super().__init__(owner=owner)
+        def __init__(self, *, tau: float = TAU_DEFAULT, epsilon: float = EPS_DEFAULT):
+        # IMPORTANT:
+        # - In v1.1.1, the cost origin is x_root defined in the locklayer formal model (JSON).
+        # - We do NOT treat "owner" as the cost origin.
+        # - Keep core initialization maximally compatible with AAOS v1.0.4.
+        try:
+            super().__init__()
+        except TypeError:
+            # If core requires a different signature in some forks, fall back gracefully.
+            super().__init__(claimants=["LEE_YU_CHEOL"])
+
         self._lock = {
             "pi": "",              # current chain head
             "lock_ok": False,      # boolean gate
@@ -85,6 +94,7 @@ class AnchorSystemLocked(AnchorSystem):
             "tau": float(tau),
             "epsilon": float(epsilon),
         }
+
 
     def lock_state(self) -> Dict[str, Any]:
         return dict(self._lock)
