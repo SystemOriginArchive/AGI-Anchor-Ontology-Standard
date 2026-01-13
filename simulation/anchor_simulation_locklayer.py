@@ -20,6 +20,7 @@ from simulation.anchor_simulation import AnchorSystem  # v1.0.4 core
 
 
 def _repo_root() -> str:
+    # this file: <repo>/simulation/anchor_simulation_locklayer.py
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
@@ -32,8 +33,11 @@ _EXT_CFG_PATH = os.path.join(os.path.dirname(__file__), "..", "locklayer", "exte
 def _load_json_if_exists(p: str) -> Dict[str, Any]:
     try:
         with open(p, "r", encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
+        return data if isinstance(data, dict) else {"enabled": False}
     except FileNotFoundError:
+        return {"enabled": False}
+    except Exception:
         return {"enabled": False}
 
 
@@ -47,6 +51,7 @@ def _load_requires_ops() -> list[str]:
     return ops
 
 
+# Loaded for canonical mapping use (kept even if not used yet)
 REQUIRES_OPS = _load_requires_ops()
 
 
@@ -66,7 +71,6 @@ EPS_DEFAULT = float(_CONT_CFG.get("epsilon_floor", 1e-9))
 
 
 def _canon_payload(packet: Dict[str, Any]) -> bytes:
-    # Canonicalize intent packet excluding volatile fields.
     stable = {
         "intent": packet.get("intent", ""),
         "meta": packet.get("meta", {}),
@@ -83,40 +87,32 @@ def _pi_next(pi_prev: str, packet: Dict[str, Any]) -> str:
 
 
 def _fidelity(pi_prev_claimed: str, pi_prev_actual: str) -> float:
-    # 1.0 if exact match, else 0.0 (minimal strong rule; graded can be extended later)
     return 1.0 if (pi_prev_claimed or "") == (pi_prev_actual or "") else 0.0
 
 
 class AnchorSystemLocked(AnchorSystem):
     """Overlay system enforcing continuity lock at canonical operations."""
 
-    def __init__(self, *, tau: float = TAU_DEFAULT, epsilon: float = EPS_DEFAULT):
-        # v1.1.1: x_root is the cost origin loaded from the overlay formal model JSON.
+    def __init__(self, claimants=None, *, tau: float = TAU_DEFAULT, epsilon: float = EPS_DEFAULT):
         self._x_root = XROOT_DEFAULT
 
-        # Keep core init maximally compatible with AAOS v1.0.4
-        try:
-            super().__init__()
-        except TypeError:
-            # fallback for forks that require claimants
-            super().__init__(claimants=["LEE_YU_CHEOL"])
+        # keep core signature compatible
+        super().__init__(claimants=claimants)
 
-        # (1) optional extension configs loaded here (so total_cost can use them)
+        # optional extension configs
         self._time_cfg = _load_json_if_exists(_TIME_CFG_PATH)
         self._state_cfg = _load_json_if_exists(_STATE_CFG_PATH)
         self._ext_cfg = _load_json_if_exists(_EXT_CFG_PATH)
 
         self._lock: Dict[str, Any] = {
-            "pi": "",                 # current chain head
-            "lock_ok": False,         # boolean gate
-            "fidelity": 0.0,          # [0,1]
+            "pi": "",
+            "lock_ok": False,
+            "fidelity": 0.0,
             "tau": float(tau),
             "epsilon": float(epsilon),
-
-            # v1.1.1 additions
-            "x_root": self._x_root,   # cost origin (external creator intent anchor)
-            "source_last": "",        # last seen intent source
-            "divergence_cost": 0.0,   # accumulated divergence from x_root
+            "x_root": self._x_root,
+            "source_last": "",
+            "divergence_cost": 0.0,
         }
 
     def lock_state(self) -> Dict[str, Any]:
@@ -131,7 +127,7 @@ class AnchorSystemLocked(AnchorSystem):
     def _undefined_obj(self):
         return None
 
-    # (2) total_cost helpers + aggregator (safe defaults; never crash)
+    # ---- total cost helpers ----
     def _safe_state(self) -> Dict[str, Any]:
         s = getattr(self, "state", None)
         if isinstance(s, dict):
@@ -146,13 +142,21 @@ class AnchorSystemLocked(AnchorSystem):
         return {}
 
     def _safe_delta_t(self) -> float:
-        # If you later wire real delta_t, replace this. For now, keep stable.
+        # v1.0.4 does not expose delta_t; overlay default is 0
         return 0.0
 
     def _safe_conflict_count(self) -> int:
         c = getattr(self, "conflict_count", None)
         if isinstance(c, int):
             return c
+        return 0
+
+    def _safe_now_tick(self) -> int:
+        # try common counters; fall back to 0
+        for name in ("t", "tick_count", "time", "step"):
+            v = getattr(self, name, None)
+            if isinstance(v, int):
+                return v
         return 0
 
     def total_cost(self) -> float:
@@ -165,40 +169,44 @@ class AnchorSystemLocked(AnchorSystem):
         ecost = float(_external_cost(cc, self._ext_cfg))
         return div + tcost + scost + ecost
 
-    def apply_intent_packet(self, packet: Dict[str, Any]) -> bool:
-        # v1.1.1: divergence cost from x_root (cost origin)
+    def apply_intent_packet(self, packet: Dict[str, Any]) -> str:
         src = str(packet.get("source", ""))
         self._lock["source_last"] = src
         if src != self._x_root:
             self._lock["divergence_cost"] += 1.0
 
-        # Expect packet carries claimed previous pi
-        claimed_prev = packet.get("pi_prev", "")
-        actual_prev = self._lock["pi"]
+        claimed_prev = str(packet.get("pi_prev", ""))
+        actual_prev = str(self._lock["pi"])
         f = _fidelity(claimed_prev, actual_prev)
         self._lock["fidelity"] = f
         self._lock["lock_ok"] = (f >= self._lock["tau"])
 
-        # Only advance pi when lock is OK (continuity maintained)
         if self._lock_ok():
             self._lock["pi"] = _pi_next(actual_prev, packet)
             return super().apply_intent_packet(packet)
 
-                # Record continuity failure locally (avoid recursive core calls)
+        # local log only (no recursive core calls) + core-compatible record shape
         try:
             if isinstance(getattr(self, "extensions", None), dict):
                 log = self.extensions.get("intent_log")
                 if isinstance(log, list):
                     log.append({
-                        "intent": packet.get("intent", ""),
-                        "continuity": "FAILED",
-                        "fidelity": self._lock["fidelity"],
-                        "tau": self._lock["tau"],
-                        "pi_prev_claimed": claimed_prev,
-                        "pi_prev_actual": actual_prev,
+                        "observer_id": packet.get("observer_id", getattr(self, "owner", "")),
+                        "nonce": str(packet.get("nonce", "")),
+                        "verb": "NOP",
+                        "payload": {
+                            "continuity": "FAILED",
+                            "fidelity": f,
+                            "tau": float(self._lock["tau"]),
+                            "pi_prev_claimed": claimed_prev,
+                            "pi_prev_actual": actual_prev,
+                        },
+                        "signature": str(packet.get("signature", "")),
+                        "t": self._safe_now_tick(),
                     })
         except Exception:
             pass
+
         return "REJECT"
 
     # --- Canonical gated ops ---
@@ -210,7 +218,6 @@ class AnchorSystemLocked(AnchorSystem):
             base = float(self.objective_remaining())
         except Exception:
             base = self._undefined_num()
-        # (3) fold total_cost into evaluation => low-cost paths become favored
         return base + float(self.total_cost())
 
     def planning_tick(self) -> Dict[str, Any] | None:
@@ -237,7 +244,8 @@ class AnchorSystemLocked(AnchorSystem):
         if not self._lock_ok():
             return False
         try:
-            return bool(self.anchor_restoration())
+            r = self.anchor_restoration()
+            return r == "RECOVERED"
         except Exception:
             return False
 
