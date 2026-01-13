@@ -18,8 +18,9 @@ from simulation.anchor_simulation_locklayer import AnchorSystemLocked
 
 sys = AnchorSystemLocked()
 # Provide intent packets with fields expected by the locklayer (see code)
-sys.apply_intent_packet({"intent":"...", "pi_prev": sys.lock_state()["pi"]})
+sys.apply_intent_packet({"intent": "...", "pi_prev": sys.lock_state()["pi"]})
 sys.planning_tick()   # gated
+
 ```
 
 ## Principle
