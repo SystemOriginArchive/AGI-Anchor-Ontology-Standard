@@ -1,7 +1,8 @@
 {
   "extensions": {
     "continuity_lock": {
-      "version": "1.1.0",
+      "version": "1.1.1",
+      "x_root": "AAOS_CREATOR_ANCHOR_001_LEE_YU_CHEOL",
       "schema_ref": "spec/Continuity_Extension_Schema.json",
       "binding_ref": "spec/Binding_Schema_Code_Ops.md",
       "ops_enum_ref": "locklayer/ops_enum.json",
