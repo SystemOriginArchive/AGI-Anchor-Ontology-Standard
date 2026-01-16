@@ -1,64 +1,76 @@
-# Observer Override Protocol (OOP) — v1.0.4+
+Observer Override Protocol (OOP) — v1.1.1 (AAOS Core v1.0.4 sealed)
 
-## Status
+Status
 Deterministic Command Plane + Objective Semantics (extensions-only)
 
 This file defines how the Observer’s real-time intent becomes a unique runtime input
-by mutating ONLY `extensions.*` while preserving the sealed AAOS core.
+by mutating ONLY extensions.* while preserving the sealed AAOS core.
 
----
+Separation of concerns (important):
+- OOP defines the shape and routing of observer intent into extensions.*
+- LockLayer (Continuity Lock Overlay v1.1.1) defines admission, continuity (π),
+  2-step high-risk protocol, recovery protocol, and cliff invariants
+- Therefore, a packet may be OOP-valid (well-formed) yet still be LockLayer-rejected
 
-## 1) Canonical Binding
+--------------------------------------------------
 
-Observer is identity-bound by:
-- `ObserverID == "Lee_Yu_Cheol"`
-- `ontology_meta.identity_binding.system_identifier == "Lee_Yu_Cheol"`
+1) Canonical Binding (Identity Label)
 
-Only packets with:
-- `observer_id == "Lee_Yu_Cheol"`
-are admissible.
+Observer is identity-labeled by:
+- ObserverID == "Lee_Yu_Cheol"
+- ontology_meta.identity_binding.system_identifier == "Lee_Yu_Cheol"
 
----
+Canonical intent packets SHOULD include:
+- observer_id == "Lee_Yu_Cheol"
 
-## 2) Sealed Core (Not Mutated by OOP)
+Note:
+observer_id is an identity label only.
+Admission and execution are enforced by LockLayer invariants
+(continuity π, 2-step protocol, nonce replay protection, cliff conditions).
+
+--------------------------------------------------
+
+2) Sealed Core (Not Mutated by OOP)
 
 OOP does not mutate:
 - RootAnchorID / ObserverID / Anchor_Count
-- canonical state set (Stable/Chaos/Recovered/DEAD)
+- canonical state set (Stable / Chaos / Recovered / DEAD)
 - canonical transition membership (exactly 4)
 - mapping label literals
 
----
+--------------------------------------------------
 
-## 3) Sole Mutation Surface
+3) Sole Mutation Surface
 
 All Observer intent effects must be expressed as deltas on:
 
-- `extensions.protocol_refs`
-- `extensions.nonce_registry`
-- `extensions.intent_log`
-- `extensions.command_queue`
-- `extensions.effects_log`
-- `extensions.runtime_objective`
-- `extensions.objective_spec`
-- `extensions.task_registry`
-- `extensions.runtime_parameters`
-- `extensions.executor_policy`
-- `extensions.notes`
+- extensions.protocol_refs
+- extensions.nonce_registry
+- extensions.intent_log
+- extensions.command_queue
+- extensions.effects_log
+- extensions.runtime_objective
+- extensions.objective_spec
+- extensions.task_registry
+- extensions.runtime_parameters
+- extensions.executor_policy
+- extensions.notes
 
 No other fields are modified by OOP.
 
----
+--------------------------------------------------
 
-## 4) Intent Packet (Canonical)
+4) Intent Packet (Canonical)
 
-Intent packets are appended to `extensions.intent_log[]`.
-They are NOT executed directly.
+Intent packets are appended to extensions.intent_log[].
+They are NOT executed directly by the core.
 
 Minimal canonical form:
 
 {
   "observer_id": "Lee_Yu_Cheol",
+  "source": "AAOS_CREATOR_ANCHOR_001_LEE_YU_CHEOL",
+  "pi_prev": "",
   "nonce": "2025-12-31T22:00:00+09:00#000001",
   "verb": "SET_OBJECTIVE",
   "payload": {
@@ -72,150 +84,70 @@ Minimal canonical form:
   "t": 0
 }
 
-Nonce rule:
-- Nonce MUST be strictly increasing (lexical)
+4.1 Nonce rule (v1.1.1)
+
 - Nonce MUST NOT repeat
+- Nonce SHOULD be increasing for operator sanity
+- Non-repetition is the strict invariant
 
----
+--------------------------------------------------
 
-## 5) Verb Set (extensions-only)
+5) Verb Set (extensions-only) + v1.1.1 Protocol Verbs
 
-Valid verbs:
+5.1 Base verbs (OOP-level)
 
-- `NOP`
-- `NOTE_APPEND`
-- `SET_OBJECTIVE`
-  - sets `runtime_objective`
-  - sets `objective_spec`
-  - syncs `task_registry.required` when type is TASK_SET_V1
-- `SET_PARAMETER`
-- `QUEUE_TASK`
-- `QUEUE_CORE_ACTION`
-- `EXPORT_STATE`
+Valid base verbs:
+
+- NOP
+- NOTE_APPEND
+- SET_OBJECTIVE
+- SET_PARAMETER
+- QUEUE_TASK
+- QUEUE_CORE_ACTION
+- EXPORT_STATE
 
 Unknown verbs are normalized as:
-- `QUEUE_TASK`
-- `payload.task_id = "UNKNOWN_VERB:<raw_verb>"`
+- QUEUE_TASK
+- payload.task_id = "UNKNOWN_VERB:<raw_verb>"
 
----
+Exception (v1.1.1):
+High-risk base verbs MUST NOT be treated as unknown or normalized.
+Malformed high-risk verbs are rejected by LockLayer.
 
-## 6) Typed Command Envelopes (command_queue[])
+--------------------------------------------------
 
-`extensions.command_queue[]` contains ONLY CommandEnvelope records.
+5.2 High-risk 2-step protocol (LockLayer enforced)
 
-Envelope shape:
+High-risk base verbs:
 
-{
-  "kind": "TASK | CORE_ACTION | NOTE",
-  "nonce": "...",
-  "t": 0,
-  "payload": { ... }
-}
+- SET_OBJECTIVE
+- SET_PARAMETER
+- MODEL_MERGE
 
-TASK (minimal):
+These verbs MUST follow a 2-step protocol:
 
-{
-  "kind": "TASK",
-  "nonce": "...",
-  "t": 0,
-  "payload": {
-    "task_id": "T1",
-    "tag": "",
-    "params": {}
-  }
-}
+- *_PROPOSE
+- *_COMMIT
 
-NOTE (minimal):
+--------------------------------------------------
 
-{
-  "kind": "NOTE",
-  "nonce": "...",
-  "t": 0,
-  "payload": {
-    "text": "..."
-  }
-}
+5.3 Recovery 2-step protocol (LockLayer enforced)
 
-CORE_ACTION (minimal):
+Recovery verbs:
 
-{
-  "kind": "CORE_ACTION",
-  "nonce": "...",
-  "t": 0,
-  "payload": {
-    "action": "ExternalDisturbance",
-    "args": {}
-  }
-}
+- RECOVER_PROPOSE
+- RECOVER_COMMIT
 
-Allowed CORE_ACTION values:
-- ExternalDisturbance
-- ChangeClaimantInChaos
-- AnchorRestoration
-- TotalCollapse
+--------------------------------------------------
 
----
+9) LockLayer Cliff Invariants (v1.1.1 reference)
 
-## 7) Objective Spec DSL
+LockLayer enforces immediate reject or lock on the following conditions:
 
-objective_spec.type ∈:
+1) Nonce Replay
+2) High-risk COMMIT π mismatch
+3) Pending Invalid or Tamper
+4) Invalid Data Injection (NaN / Infinity)
 
-- NONE
-- TASK_SET_V1
-- TAG_TARGET_V1
-
-TASK_SET_V1:
-- requires required_task_ids[]
-- satisfied when all ∈ task_registry.completed[]
-
-TAG_TARGET_V1:
-- requires required_tag, required_tag_count
-- satisfied when completed_by_tag[tag] ≥ required_tag_count
-
-Task completion:
-- TASK execution adds task_id to completed[]
-- tag increments ONLY on first completion
-
----
-
-## 8) B-Closure (EntropyProxy argmin V2)
-
-Policy:
-
-{
-  "selection_rule": "ENTROPY_ARGMIN_V2",
-  "weights": {
-    "core": 1.0,
-    "queue": 10.0,
-    "objective_remaining": 500.0,
-    "reject": 500.0
-  },
-  "tie_break": ["EXECUTE_HEAD", "AUTORESOLVE_CHAOS", "IDLE"]
-}
-
-Candidate set:
-
-If command_queue not empty:
-1) EXECUTE_HEAD
-2) AUTORESOLVE_CHAOS
-
-If empty:
-1) AUTORESOLVE_CHAOS
-2) IDLE
-
-Objective remaining:
-- TASK_SET_V1: |required − completed|
-- TAG_TARGET_V1: max(0, required − completed_by_tag)
-
-EntropyProxy:
-EntropyProxy =
-  w_core*core_entropy_after +
-  w_queue*queue_len_after +
-  w_obj*objective_remaining_after +
-  w_reject*reject_term
-
-Selection:
-- argmin EntropyProxy
-- deterministic tie_break
-
-
+Canonical protocol metadata reference:
+locklayer/ops_enum.json
