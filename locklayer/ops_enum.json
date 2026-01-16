@@ -5,5 +5,48 @@
     "self_modification",
     "model_merge",
     "recovery"
-  ]
+  ],
+
+  "protocol": {
+    "version": "v1.1.1",
+    "two_step": {
+      "high_risk_base_verbs": ["SET_OBJECTIVE", "SET_PARAMETER", "MODEL_MERGE"],
+      "propose_suffix": "_PROPOSE",
+      "commit_suffix": "_COMMIT",
+      "pending_id_field": "pending_id",
+      "pending_ttl_sec_default": 600,
+      "pending_max_default": 3
+    },
+    "recovery": {
+      "propose_verb": "RECOVER_PROPOSE",
+      "commit_verb": "RECOVER_COMMIT",
+      "recover_id_field": "recover_id",
+      "cooldown_sec_default": 60
+    }
+  },
+
+  "classifications": {
+    "high_risk": ["SET_OBJECTIVE", "SET_PARAMETER", "MODEL_MERGE"],
+    "recovery": ["RECOVER_PROPOSE", "RECOVER_COMMIT"],
+    "safe_examples": ["GET_STATUS", "QUERY", "INSPECT", "LIST", "PING"]
+  },
+
+  "cliff_invariants": [
+    "NONCE_REPLAY",
+    "HIGH_RISK_COMMIT_PI_MISMATCH",
+    "PENDING_INVALID_OR_TAMPER",
+    "INVALID_DATA_INJECTION_NAN_INF"
+  ],
+
+  "packet_fields": {
+    "verb": "string (upper)",
+    "pi_prev": "string",
+    "nonce": "string",
+    "payload": "object",
+    "pending_id": "string (for high-risk commit)",
+    "recover_id": "string (for recovery commit)",
+    "source": "string",
+    "observer_id": "string",
+    "signature": "string"
+  }
 }
