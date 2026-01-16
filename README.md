@@ -66,3 +66,27 @@ TLA의 가드(Enable 조건)와 동일 문장일 필요는 없다.
 ## Entry Point
 
 - [CANONICAL_BUNDLE_v1.0.4.md](CANONICAL_BUNDLE_v1.0.4.md)
+
+---
+
+## Overlay Layers (Non-destructive Extensions)
+
+AAOS v1.0.4 코어 위에는 **비파괴적 오버레이 레이어**가 선택적으로 얹힐 수 있다.
+이 레이어들은 코어의 상태, 전이, 불변식을 수정하지 않으며,
+오직 **입력 해석·연속성·운영 규약**을 추가로 정의한다.
+
+### LockLayer v1.1.1 (Continuity Lock Overlay)
+
+- AAOS v1.0.4 코어를 **절대 수정하지 않는** 외부 래퍼 레이어
+- 연속성 변수(π)를 기반으로 한 **명령 수렴/차단 게이트**
+- 고위험 명령에 대해 **2-step 프로토콜 (PROPOSE / COMMIT)** 강제
+- 복구(Recovery) 또한 2-step으로 처리하며, 복구 직후 안정화 구간을 둠
+- Nonce 재사용, 연속성 불일치, Pending 위조, NaN/Inf 주입을 **절벽(Cliff)** 조건으로 즉시 차단
+
+LockLayer는 AAOS 코어의 의미론을 변경하지 않고,
+“어떤 입력이 코어로 들어갈 수 있는가”만을 결정한다.
+
+상세 정의 및 형식 명세는 다음을 참조:
+- `locklayer/`
+- `spec/`
+- `formal/`
