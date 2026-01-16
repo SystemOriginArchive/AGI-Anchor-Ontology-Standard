@@ -18,6 +18,18 @@ v1.1.1 (finalization):
   (3) Pending tamper / invalid pending
   (4) Invalid data injection (NaN/Inf)
 - Pending limits: max 3 + TTL (default 10 min)
+
+Adapter (v1.0.4 core compatibility):
+- v1.0.4 core expects packet["intent"] = {"verb": ..., "payload": ...}
+- LockLayer accepts both:
+  (A) canonical: packet["intent"]["verb/payload"]
+  (B) flat: packet["verb"], packet["payload"]
+- Core nonce is generated internally as a strict lexical monotone string
+  (external nonce remains for LockLayer invariants only).
+
+Final tightening:
+- Core observer_id is ALWAYS forced to self.owner (sealed core identity).
+- pi canonicalization uses a single normalized form (no "intent" duplication in hash).
 """
 
 from __future__ import annotations
@@ -90,19 +102,22 @@ RECOVERY_COOLDOWN_SEC_DEFAULT = int(_CONT_CFG.get("recovery_cooldown_sec", 60))
 NONCE_CACHE_MAX_DEFAULT = int(_CONT_CFG.get("nonce_cache_max", 2048))
 
 
-# --- Canonical packet hashing ---
+# --- Canonical packet hashing (single normalized form; no intent duplication) ---
 def _canon_packet_for_pi(packet: Dict[str, Any]) -> bytes:
     """
-    Canonicalize fields that should influence pi evolution.
-    Keep it stable across equivalent packets.
+    Canonicalize fields that influence pi evolution.
+
+    IMPORTANT:
+    - Use a single normalized form only.
+    - Do NOT include packet["intent"] to avoid duplication/over-strictness.
     """
     stable = {
         "verb": str(packet.get("verb", "")).upper(),
-        "intent": packet.get("intent", ""),
-        "meta": packet.get("meta", {}),
         "payload": packet.get("payload", {}),
+        "meta": packet.get("meta", {}),
         "nonce": str(packet.get("nonce", "")),
         "pending_id": str(packet.get("pending_id", "")),
+        "recover_id": str(packet.get("recover_id", "")),
     }
     return json.dumps(stable, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
 
@@ -193,6 +208,8 @@ class AnchorSystemLocked(AnchorSystem):
             "x_root": self._x_root,
             "source_last": "",
             "divergence_cost": 0.0,
+            # core adapter state (Option 2)
+            "core_nonce_counter": 0,
         }
 
         # protocol state
@@ -226,6 +243,37 @@ class AnchorSystemLocked(AnchorSystem):
     def _undefined_obj(self):
         return None
 
+    # ---- core compatibility adapter (Option 2) ----
+    def _next_core_nonce(self) -> str:
+        """
+        Core(v1.0.4) requires lexical monotone + no reuse.
+        Use a fixed-width counter string so lexical order == numeric order.
+        """
+        try:
+            n = int(self._lock.get("core_nonce_counter", 0))
+        except Exception:
+            n = 0
+        n += 1
+        self._lock["core_nonce_counter"] = n
+        return f"CORE#{n:012d}"
+
+    def _to_core_packet(self, packet: Dict[str, Any], *, verb: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Convert LockLayer packet into v1.0.4 core packet format.
+        - observer_id is ALWAYS forced to self.owner (sealed core identity)
+        - external nonce stays in LockLayer; core nonce is generated internally
+        """
+        core_nonce = self._next_core_nonce()
+        return {
+            "observer_id": getattr(self, "owner", ""),
+            "nonce": core_nonce,
+            "signature": str(packet.get("signature", "")),
+            "intent": {
+                "verb": str(verb).upper(),
+                "payload": dict(payload) if isinstance(payload, dict) else {"value": payload},
+            },
+        }
+
     # ---- total cost helpers ----
     def _safe_state(self) -> Dict[str, Any]:
         s = getattr(self, "state", None)
@@ -251,7 +299,21 @@ class AnchorSystemLocked(AnchorSystem):
         return 0
 
     def _safe_now_tick(self) -> int:
-        # try common counters; fall back to 0
+        """
+        Prefer core tick path if present: extensions.runtime_parameters["tick"].
+        Fall back to common counters; else 0.
+        """
+        try:
+            ex = getattr(self, "extensions", None)
+            if isinstance(ex, dict):
+                rp = ex.get("runtime_parameters")
+                if isinstance(rp, dict):
+                    t = rp.get("tick")
+                    if isinstance(t, int):
+                        return t
+        except Exception:
+            pass
+
         for name in ("t", "tick_count", "time", "step"):
             v = getattr(self, name, None)
             if isinstance(v, int):
@@ -277,19 +339,15 @@ class AnchorSystemLocked(AnchorSystem):
 
     def _gc_pending(self) -> None:
         now = self._now()
-        # normal pending ops
         drop = [pid for pid, rec in self._pending_ops.items() if float(rec.get("expires_at", 0.0)) <= now]
         for pid in drop:
             self._pending_ops.pop(pid, None)
 
-        # recovery pending
         drop2 = [pid for pid, rec in self._recovery_pending.items() if float(rec.get("expires_at", 0.0)) <= now]
         for pid in drop2:
             self._recovery_pending.pop(pid, None)
 
-        # nonce LRU trim (also drop very old entries opportunistically)
         if len(self._nonce_seen) > self._nonce_cache_max:
-            # remove oldest by timestamp
             items = sorted(self._nonce_seen.items(), key=lambda kv: kv[1])
             for k, _ts in items[: max(1, len(items) - self._nonce_cache_max)]:
                 self._nonce_seen.pop(k, None)
@@ -303,9 +361,7 @@ class AnchorSystemLocked(AnchorSystem):
         if not nonce:
             return
         self._nonce_seen[nonce] = self._now()
-        # trim if needed
         if len(self._nonce_seen) > self._nonce_cache_max:
-            # remove oldest
             oldest = sorted(self._nonce_seen.items(), key=lambda kv: kv[1])[: max(1, len(self._nonce_seen) - self._nonce_cache_max)]
             for k, _ts in oldest:
                 self._nonce_seen.pop(k, None)
@@ -314,7 +370,6 @@ class AnchorSystemLocked(AnchorSystem):
         self._lock["lock_ok"] = False
 
     def _log_local(self, packet: Dict[str, Any], status: str, extra: Optional[Dict[str, Any]] = None) -> None:
-        # local log only (no recursive core calls) + core-compatible record shape
         try:
             if isinstance(getattr(self, "extensions", None), dict):
                 log = self.extensions.get("intent_log")
@@ -339,52 +394,62 @@ class AnchorSystemLocked(AnchorSystem):
         except Exception:
             pass
 
-    def _normalize_verb(self, packet: Dict[str, Any]) -> str:
-        return str(packet.get("verb", "")).upper()
-
-    def _split_2step(self, verb: str) -> Tuple[str, str]:
-        """
-        Returns (base, phase) where phase in {"PROPOSE","COMMIT","NONE"}.
-        Also supports shorthand: base verb + presence of pending_id => COMMIT.
-        """
+    def _split_2step(self, verb: str, packet: Dict[str, Any]) -> Tuple[str, str]:
         if verb.endswith("_PROPOSE"):
             return verb[:-8], "PROPOSE"
         if verb.endswith("_COMMIT"):
             return verb[:-7], "COMMIT"
-        # shorthand
         if verb in self.HIGH_RISK:
-            if str(packet.get("pending_id", "")):  # type: ignore[name-defined]
+            if str(packet.get("pending_id", "")):
                 return verb, "COMMIT"
             return verb, "PROPOSE"
         return verb, "NONE"
 
-    def apply_intent_packet(self, packet: Dict[str, Any]) -> str:
-        # housekeeping
+    def _extract_intent(self, packet_in: Dict[str, Any]) -> Tuple[Dict[str, Any], str, Dict[str, Any]]:
+        packet = dict(packet_in)
+
+        intent = packet.get("intent", None)
+        if isinstance(intent, dict):
+            verb = str(intent.get("verb", packet.get("verb", "NOP"))).upper()
+            payload = intent.get("payload", packet.get("payload", {}))
+        else:
+            verb = str(packet.get("verb", "NOP")).upper()
+            payload = packet.get("payload", {})
+
+        if payload is None:
+            payload = {}
+        if not isinstance(payload, dict):
+            payload = {"value": payload}
+
+        packet["verb"] = verb
+        packet["payload"] = dict(payload)
+        packet["intent"] = {"verb": verb, "payload": dict(payload)}
+        return packet, verb, dict(payload)
+
+    def apply_intent_packet(self, packet_in: Dict[str, Any]) -> str:
         self._gc_pending()
 
-        # Cliff #4: invalid data injection (NaN/Inf)
-        if _contains_invalid_data(packet):
+        if _contains_invalid_data(packet_in):
             self._cliff()
-            self._log_local(packet, "CLIFF_INVALID_DATA")
+            self._log_local(packet_in, "CLIFF_INVALID_DATA")
             return "REJECT"
+
+        packet, verb, payload = self._extract_intent(packet_in)
 
         src = str(packet.get("source", ""))
         self._lock["source_last"] = src
         if src != self._x_root:
             self._lock["divergence_cost"] += 1.0
 
-        verb = self._normalize_verb(packet)
         claimed_prev = str(packet.get("pi_prev", ""))
         actual_prev = str(self._lock["pi"])
 
-        # Fidelity gate (baseline continuity)
         f = _fidelity(claimed_prev, actual_prev)
         self._lock["fidelity"] = f
         self._lock["lock_ok"] = (f >= float(self._lock["tau"]))
 
         nonce = str(packet.get("nonce", ""))
 
-        # Cliff #1: nonce replay
         if nonce and self._nonce_replay(nonce):
             self._cliff()
             self._log_local(packet, "CLIFF_NONCE_REPLAY")
@@ -392,16 +457,13 @@ class AnchorSystemLocked(AnchorSystem):
 
         now = self._now()
 
-        # --- Recovery 2-step (only used when continuity fails) ---
+        # --- Recovery 2-step ---
         if verb in (self.REC_PROPOSE, self.REC_COMMIT):
-            # Recovery requires nonce (simple invariant)
             if not nonce:
                 self._log_local(packet, "REJECT_RECOVERY_NO_NONCE")
                 return "REJECT"
 
             if verb == self.REC_PROPOSE:
-                # allow propose even when continuity fails; keep minimal invariants:
-                # - pending max 1 for recovery
                 if len(self._recovery_pending) >= 1:
                     self._log_local(packet, "REJECT_RECOVERY_PENDING_MAX")
                     return "REJECT"
@@ -415,7 +477,6 @@ class AnchorSystemLocked(AnchorSystem):
                     "src_hint": src,
                 }
 
-                # mark nonce + evolve pi on accepted propose (protocol event)
                 self._mark_nonce(nonce)
                 self._lock["pi"] = _pi_next(actual_prev, {**packet, "verb": self.REC_PROPOSE, "pending_id": rid})
                 self._lock["lock_ok"] = True
@@ -424,11 +485,9 @@ class AnchorSystemLocked(AnchorSystem):
                 self._log_local(packet, "REC_PENDING", {"recover_id": rid})
                 return f"REC_PENDING:{rid}"
 
-            # RECOVER_COMMIT
             rid = str(packet.get("recover_id", ""))
             rec = self._recovery_pending.get(rid)
             if not rec:
-                # Cliff #3 style (invalid pending)
                 self._cliff()
                 self._log_local(packet, "CLIFF_RECOVERY_PENDING_INVALID")
                 return "REJECT"
@@ -439,18 +498,14 @@ class AnchorSystemLocked(AnchorSystem):
                 self._log_local(packet, "CLIFF_RECOVERY_PENDING_EXPIRED")
                 return "REJECT"
 
-            # commit requires exact match to the original rid + nonce continuity (simple tamper check)
             if str(rec.get("nonce", "")) == nonce:
-                # If nonce reused within recovery, it's a replay attempt by definition
                 self._cliff()
                 self._log_local(packet, "CLIFF_RECOVERY_NONCE_REUSE")
                 return "REJECT"
 
-            # accept recovery commit -> set cooldown, clear recovery pending
             self._recovery_pending.pop(rid, None)
             self._cooldown_until = now + float(self._recovery_cooldown_sec)
 
-            # mark nonce + force lock ok + align pi forward using claimed_prev as a bridge
             self._mark_nonce(nonce)
             bridged_prev = claimed_prev or actual_prev
             self._lock["pi"] = _pi_next(bridged_prev, {**packet, "verb": self.REC_COMMIT, "recover_id": rid})
@@ -461,45 +516,27 @@ class AnchorSystemLocked(AnchorSystem):
             return "RECOVERED"
 
         # --- High-risk 2-step protocol ---
-        is_high_risk_base = verb in self.HIGH_RISK
-        phase = "NONE"
-        base = verb
+        base, phase = self._split_2step(verb, packet)
 
-        if verb.endswith("_PROPOSE"):
-            base = verb[:-8]
-            phase = "PROPOSE"
-        elif verb.endswith("_COMMIT"):
-            base = verb[:-7]
-            phase = "COMMIT"
-        elif is_high_risk_base:
-            # shorthand: base verb + pending_id means COMMIT
-            phase = "COMMIT" if str(packet.get("pending_id", "")) else "PROPOSE"
-
-        # Cooldown: block high-risk during stabilization window
         if base in self.HIGH_RISK and self._in_cooldown():
             self._log_local(packet, "REJECT_COOLDOWN", {"cooldown_until": float(self._cooldown_until)})
             return "REJECT"
 
         if base in self.HIGH_RISK and phase in ("PROPOSE", "COMMIT"):
-            # Require nonce for any high-risk step
             if not nonce:
                 self._log_local(packet, "REJECT_HIGH_RISK_NO_NONCE")
                 return "REJECT"
 
-            # PROPOSE: must have continuity (pi match) so pending cannot be created from a broken chain
             if phase == "PROPOSE":
                 if not self._lock_ok():
                     self._log_local(packet, "REJECT_HIGH_RISK_PROPOSE_PI_FAIL")
                     return "REJECT"
 
-                # DoS throttle: pending max
                 if len(self._pending_ops) >= self._pending_max:
                     self._log_local(packet, "REJECT_PENDING_MAX", {"pending_max": int(self._pending_max)})
                     return "REJECT"
 
-                # store pending
                 pid = uuid.uuid4().hex
-                payload = packet.get("payload", {})
                 rec = {
                     "id": pid,
                     "kind": base,
@@ -510,7 +547,6 @@ class AnchorSystemLocked(AnchorSystem):
                 }
                 self._pending_ops[pid] = rec
 
-                # mark nonce + evolve pi on accepted propose (protocol event)
                 self._mark_nonce(nonce)
                 self._lock["pi"] = _pi_next(actual_prev, {**packet, "verb": f"{base}_PROPOSE", "pending_id": pid})
                 self._lock["lock_ok"] = True
@@ -519,11 +555,9 @@ class AnchorSystemLocked(AnchorSystem):
                 self._log_local(packet, "PENDING", {"pending_id": pid, "kind": base})
                 return f"PENDING:{pid}"
 
-            # COMMIT: must have exact continuity AND valid pending AND payload match
             pid = str(packet.get("pending_id", ""))
             rec = self._pending_ops.get(pid)
             if not rec:
-                # Cliff #3: pending invalid / forged
                 self._cliff()
                 self._log_local(packet, "CLIFF_PENDING_INVALID", {"pending_id": pid})
                 return "REJECT"
@@ -534,32 +568,22 @@ class AnchorSystemLocked(AnchorSystem):
                 self._log_local(packet, "CLIFF_PENDING_EXPIRED", {"pending_id": pid})
                 return "REJECT"
 
-            # Cliff #2: high-risk COMMIT pi mismatch
             if not self._lock_ok():
                 self._cliff()
                 self._log_local(packet, "CLIFF_HIGH_RISK_COMMIT_PI_MISMATCH", {"pending_id": pid, "kind": base})
                 return "REJECT"
 
-            # Cliff #3: pending tamper / payload mismatch
-            payload = packet.get("payload", {})
             if str(rec.get("payload_hash", "")) != _payload_hash(payload):
                 self._cliff()
                 self._log_local(packet, "CLIFF_PENDING_TAMPER", {"pending_id": pid, "kind": base})
                 return "REJECT"
 
-            # Execute base verb on core
-            packet2 = dict(packet)
-            packet2["verb"] = base  # translate COMMIT into actual base op
-            # keep payload as is
-            packet2.pop("pending_id", None)
-
-            # mark nonce first (commit attempt consumes nonce)
             self._mark_nonce(nonce)
 
-            res = super().apply_intent_packet(packet2)
+            core_packet = self._to_core_packet(packet, verb=base, payload=payload)
+            res = super().apply_intent_packet(core_packet)
 
             if res == "OK":
-                # success: delete pending and advance pi
                 self._pending_ops.pop(pid, None)
                 self._lock["pi"] = _pi_next(actual_prev, {**packet, "verb": f"{base}_COMMIT", "pending_id": pid})
                 self._lock["lock_ok"] = True
@@ -567,22 +591,21 @@ class AnchorSystemLocked(AnchorSystem):
                 self._log_local(packet, "OK", {"pending_id": pid, "kind": base})
                 return "OK"
 
-            # core rejected -> mark lock false (no partial commit)
+            self._pending_ops.pop(pid, None)
             self._lock["lock_ok"] = False
             self._log_local(packet, "REJECT_CORE", {"pending_id": pid, "kind": base, "core_res": res})
             return "REJECT"
 
-        # --- SAFE / general path (original semantics, but with strict pi gate) ---
+        # --- SAFE / general path (strict pi gate) ---
         if self._lock_ok():
-            # consume nonce if present
             if nonce:
                 self._mark_nonce(nonce)
 
-            # advance pi and call core
             self._lock["pi"] = _pi_next(actual_prev, packet)
-            return super().apply_intent_packet(packet)
 
-        # continuity failed -> reject (recovery handles this case explicitly)
+            core_packet = self._to_core_packet(packet, verb=verb, payload=payload)
+            return super().apply_intent_packet(core_packet)
+
         self._log_local(packet, "REJECT_CONTINUITY")
         return "REJECT"
 
@@ -605,7 +628,6 @@ class AnchorSystemLocked(AnchorSystem):
         except Exception:
             return self._undefined_obj()
 
-    # alias to match requires_ops name in specs
     def planning(self) -> Dict[str, Any] | None:
         return self.planning_tick()
 
@@ -622,7 +644,6 @@ class AnchorSystemLocked(AnchorSystem):
         }
 
     def recovery(self) -> bool:
-        # legacy alias: core may not have anchor_restoration; keep safe
         if not self._lock_ok():
             return False
         try:
