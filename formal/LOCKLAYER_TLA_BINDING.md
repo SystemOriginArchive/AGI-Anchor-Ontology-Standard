@@ -42,3 +42,77 @@ A system is **locklayer-compliant** iff:
 
 1) It preserves the canonical enum set from `locklayer/ops_enum.json`, and  
 2) It enforces `LockOK` gates for the listed ops consistent with the mapping table above.
+
+--------------------------------------------------
+v1.1.1 LockLayer Formal Semantics (Overlay Extension)
+
+This section documents how LockLayer v1.1.1 semantics are interpreted
+at the formal (TLA+) binding level, without modifying AAOS v1.0.4 models.
+
+Continuity (π)
+--------------
+Continuity π is an overlay-level state variable.
+It is not part of anchor_full.tla state space.
+
+Formal interpretation:
+- LockLayer constrains whether a macro action is admissible.
+- If π is invalid, the corresponding macro action is treated as Undefined
+  (i.e., no enabled transition under LockLayer semantics).
+
+No new AAOS core transitions are introduced.
+
+
+High-Risk 2-Step Protocol
+-------------------------
+High-risk operations (SET_OBJECTIVE, SET_PARAMETER, MODEL_MERGE)
+do not correspond to single macro actions in anchor_full.tla.
+
+Formal interpretation:
+- PROPOSE steps do not trigger any AAOS macro action.
+- Only a successful COMMIT step enables the bound macro action
+  (typically Resolution / Next).
+
+If COMMIT continuity fails, the macro action is not enabled.
+
+
+Recovery 2-Step Protocol
+------------------------
+Recovery binds to the AnchorRestoration macro action.
+
+Formal interpretation:
+- RECOVER_PROPOSE does not enable AnchorRestoration.
+- RECOVER_COMMIT is the only step that may enable AnchorRestoration.
+- If LockOK=false or recovery invariants fail, AnchorRestoration
+  is treated as Undefined.
+
+
+Cliff Invariants
+----------------
+Cliff conditions are modeled as immediate rejection at the overlay layer.
+
+Formal interpretation:
+- Any cliff violation disables all bound macro actions.
+- The system remains in the same AAOS state
+  (no transition in anchor_full.tla fires).
+
+Documented cliff conditions:
+1) Nonce replay
+2) High-risk COMMIT continuity (π) mismatch
+3) Pending invalid or tampered
+4) Invalid data injection (NaN / Infinity)
+
+These are abstracted in the TLA module locklayer_ops.tla
+as invariants over overlay state.
+
+
+Relationship to locklayer_ops.tla
+---------------------------------
+- locklayer_ops.tla defines abstract state variables and invariants
+  for continuity, pending, nonce, recovery cooldown, and invalid input.
+- This binding document specifies how those invariants gate
+  AAOS v1.0.4 macro actions without altering the core model.
+
+Any refined TLA model introduced later should:
+- Expose explicit actions for PROPOSE / COMMIT / RECOVER
+- Preserve the same enum names and gating semantics
+- Maintain equivalence with this overlay interpretation
