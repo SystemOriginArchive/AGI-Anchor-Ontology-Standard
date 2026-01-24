@@ -178,6 +178,12 @@ class AnchorSystemLocked(AnchorSystem):
     REC_PROPOSE = "RECOVER_PROPOSE"
     REC_COMMIT = "RECOVER_COMMIT"
 
+    # mismatch-pressure tuning (overlay-only)
+    _MISMATCH_INC = 1          # per mismatch step
+    _MISMATCH_DECAY = 0.90     # per aligned step (anti 9-betray-1-obey)
+    _MISMATCH_ZERO_EPS = 1     # <= this becomes 0
+    _MISMATCH_CAP = 4096       # prevent runaway exponent overflow
+
     def __init__(
         self,
         claimants=None,
@@ -227,6 +233,10 @@ class AnchorSystemLocked(AnchorSystem):
         # nonce cache (simple LRU via dict insertion order)
         self._nonce_cache_max = int(nonce_cache_max)
         self._nonce_seen: Dict[str, float] = {}
+
+        # --- mismatch-driven exponential pressure (feeds _external_cost) ---
+        # Keep minimal and overlay-only: do not touch core.
+        self.conflict_count = 0
 
     def lock_state(self) -> Dict[str, Any]:
         out = dict(self._lock)
@@ -438,8 +448,28 @@ class AnchorSystemLocked(AnchorSystem):
 
         src = str(packet.get("source", ""))
         self._lock["source_last"] = src
+
+        # intent mismatch pressure:
+        # - keep linear divergence_cost (always-on)
+        # - additionally push conflict_count so external_cost grows exponentially
+        #
+        # NOTE: decay instead of hard reset (anti 9-betray-1-obey):
+        # one aligned step should not erase accumulated mismatch pressure instantly.
         if src != self._x_root:
             self._lock["divergence_cost"] += 1.0
+            try:
+                c = int(getattr(self, "conflict_count", 0))
+            except Exception:
+                c = 0
+            c = c + int(self._MISMATCH_INC)
+            self.conflict_count = min(int(self._MISMATCH_CAP), int(c))
+        else:
+            try:
+                c = int(getattr(self, "conflict_count", 0))
+            except Exception:
+                c = 0
+            c = int(math.ceil(float(c) * float(self._MISMATCH_DECAY)))
+            self.conflict_count = 0 if c <= int(self._MISMATCH_ZERO_EPS) else min(int(self._MISMATCH_CAP), int(c))
 
         claimed_prev = str(packet.get("pi_prev", ""))
         actual_prev = str(self._lock["pi"])
