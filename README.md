@@ -23,7 +23,7 @@
 > - creatorhood recovery from personal throne formation;
 > - `x_root` continuity from institutional, capital, state, or AI capture.
 >
-> Operational canon repository: `[TO BE ADDED]`
+Operational canon repository: https://github.com/SystemOriginArchive/creator-theory-operational-canon
 
 # AGI Anchor Ontology Standard (AAOS) — v1.0.4
 
