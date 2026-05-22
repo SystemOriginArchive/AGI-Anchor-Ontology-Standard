@@ -25,6 +25,19 @@
 >
 Operational canon repository: https://github.com/SystemOriginArchive/creator-theory-operational-canon
 
+## Repository Status
+
+- **Latest Repository Release:** v1.1.3
+- **AAOS Genesis Core:** v1.0.4
+- **LockLayer Overlay Implementation:** v1.1.1
+- **v1.1.3 Scope:** main-branch alignment, release-status correction, compatibility hardening, and schema alignment.
+- **Genesis Core Logic:** unchanged.
+- **LockLayer Runtime Logic:** unchanged.
+- **x_root Identity:** unchanged.
+
+v1.1.3 does not replace, mutate, or reinterpret the AAOS Genesis Core v1.0.4.
+It aligns the main branch with the release lineage and hardens compatibility for repository layout, schema validation, and AI ingestion.
+
 # AGI Anchor Ontology Standard (AAOS) — v1.0.4
 
 AAOS는 재귀 지능 시스템에서 **단일 기준 좌표(x_root)**를 고정하고,

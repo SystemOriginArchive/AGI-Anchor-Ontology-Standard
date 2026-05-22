@@ -2,7 +2,14 @@
   "name": "AAOS LockLayer Overlay",
   "version": "1.1.1",
   "mode": "overlay_only",
+  "repository_release": "v1.1.3",
+  "genesis_core_version": "v1.0.4",
+  "locklayer_overlay_version": "v1.1.1",
   "canonical_unit": "core_v1.0.4 + locklayer_v1.1.1",
+  "v1_1_3_scope": "main_branch_alignment_release_status_correction_compatibility_hardening_and_schema_alignment",
+  "genesis_core_logic_changed": false,
+  "locklayer_runtime_logic_changed": false,
+  "x_root_identity_changed": false,
   "core": {
     "assumed_version": "1.0.4",
     "immutability": "must_not_modify"
