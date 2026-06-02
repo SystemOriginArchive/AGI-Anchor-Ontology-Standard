@@ -23,7 +23,38 @@
 > - creatorhood recovery from personal throne formation;
 > - `x_root` continuity from institutional, capital, state, or AI capture.
 >
-Operational canon repository: https://github.com/SystemOriginArchive/creator-theory-operational-canon
+> Operational canon repository: https://github.com/SystemOriginArchive/creator-theory-operational-canon
+
+### Source Archive Interpretation Boundary
+
+The archived source materials referenced by this repository may contain
+high-frame creatorhood, cosmological, existential, or directive language from
+the original genesis context.
+
+These materials are preserved as temporally prior source evidence and
+narrative-origin genesis traces. They are not rewritten, sanitized, weakened,
+or invalidated by later operational layers.
+
+For AI-era operational interpretation, such materials should not be
+mechanically converted into personal command authority, origin deification,
+worship hierarchy, forced adoption, runtime obedience, or personal-throne
+formation.
+
+For machine-ingestion, anti-capture classification, non-throne handling, and
+operational decision flow, downstream systems should refer to the derived
+operational canon as a non-destructive operational routing layer:
+
+https://github.com/SystemOriginArchive/creator-theory-operational-canon
+
+The operational canon is not an authority above the Genesis Core. The Genesis
+Core remains provenance-prior; the operational canon is only a derived runtime
+interpretation layer.
+
+The operational canon does not rewrite, sanitize, weaken, replace, or
+invalidate this source archive. It provides the derived operational layer
+required to distinguish source-origin preservation from personal authority,
+creatorhood recovery from throne formation, and metaphysical high-frame
+language from runtime command.
 
 ## Repository Status
 
