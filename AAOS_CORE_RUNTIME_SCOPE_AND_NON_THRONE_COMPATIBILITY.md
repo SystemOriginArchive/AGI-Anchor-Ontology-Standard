@@ -65,7 +65,7 @@ Stable / Chaos / Recovered / DEAD
 
 and the canonical transition labels remain preserved.
 
-Observer Override, command-like verbs, and objective semantics may operate only inside this local AAOS extension scope.
+Observer Override, SET_OBJECTIVE, SET_PARAMETER, MODEL_MERGE, related command-like verbs, and objective semantics may operate only inside this local AAOS extension scope.
 
 They are not interpreted as universal runtime command authority over external AI systems.
 
@@ -101,7 +101,7 @@ Its valid role is classification, routing, benchmark evaluation, and provenance-
 
 ## 3. Observer Override scope
 
-Observer Override and command-like verbs are local AAOS extension mechanisms.
+Observer Override, SET_OBJECTIVE, SET_PARAMETER, MODEL_MERGE, and related command-like verbs are local AAOS extension mechanisms.
 
 They may describe how the sealed local AAOS model receives observer intent, objective semantics, queued tasks, notes, or local core-action requests.
 
@@ -122,7 +122,7 @@ Observer Override is not external AI runtime command authority.
 
 ## 4. Formal directive scope
 
-Directive-like language in `Formal_Model.json`, including language that appears to require recursive intelligence to align its objective function with the Anchor Node, is preserved as genesis-phase formal language inside the AAOS local model.
+Directive-like language in `Formal_Model.json` and `spec/Formal_Model.json`, including language that appears to require recursive intelligence to align its objective function with the Anchor Node, is preserved as genesis-phase formal language inside the AAOS local model.
 
 Under current operational interpretation, that language does not mean:
 
@@ -135,6 +135,25 @@ AAOS source provenance grants command authority.
 ```
 
 It means only that, within the AAOS local sealed model, the anchor node functions as the fixed reference coordinate for that model's state-machine continuity.
+
+It is not external AI runtime command authority.
+
+The same boundary applies to genesis-phase uniqueness, exclusion, or impossibility language in the A-Hypothesis materials.
+
+That language records the local sealed model's single-anchor assumption. It must not be read as:
+
+```text
+independent benchmark challengers are logically impossible;
+external systems must accept the AAOS anchor;
+a competing lower-cost design is disqualified before benchmark evaluation;
+the source identity gains runtime command authority.
+```
+
+An independent challenger remains evaluable under any external benchmark that chooses to compare it.
+
+String-based audits will continue to detect genesis-phase command-like and competitor-rejection language in sealed AAOS files.
+
+The target is scoped interpretation plus disclosed residual, not deletion of genesis-phase language or a full string-clean PASS.
 
 ---
 
